@@ -65,7 +65,7 @@ jobs:
 
     strategy:
       matrix:
-        arch: [amd64, aarch64, armv7]
+        arch: [amd64, aarch64]  # armv7 dropped - watchfiles doesn't have wheels
 
     steps:
       - uses: actions/checkout@v4
