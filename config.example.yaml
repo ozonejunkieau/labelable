@@ -1,0 +1,56 @@
+# Labelable Configuration
+# Copy this file to config.yaml and update with your settings
+
+# Queue timeout in seconds (jobs older than this are dropped)
+queue_timeout_seconds: 300
+
+# Directory containing label template YAML files
+templates_dir: ./templates
+
+# API key for external access (optional)
+# If set, API requests must include this key via:
+#   - X-API-Key header
+#   - Authorization: Bearer <key> header
+#   - api_key query parameter
+# Requests via Home Assistant Ingress (sidebar) bypass this check.
+# api_key: your-secret-key-here
+
+# User mapping for Home Assistant Ingress (maps HA user IDs to display names)
+# Get user IDs from Home Assistant: Settings > People > click user > see URL
+user_mapping:
+  # "abc123-def456-user-uuid": "Your Name"
+
+# Default user when not accessed via HA or user not in mapping
+default_user: ""
+
+# Printer definitions
+printers:
+  # ZPL printer over TCP
+  - name: warehouse-zpl
+    type: zpl
+    connection:
+      type: tcp
+      host: 192.168.1.100
+      port: 9100  # Default ZPL port
+    healthcheck:
+      interval: 60
+      command: "~HS"  # Host status query
+
+  # EPL2 printer over TCP
+  # - name: office-epl
+  #   type: epl2
+  #   connection:
+  #     type: tcp
+  #     host: 192.168.1.101
+  #     port: 9100
+  #   healthcheck:
+  #     interval: 60
+  #     command: "UQ"  # Print info query
+
+  # Serial printer example - untested
+  # - name: usb-printer
+  #   type: zpl
+  #   connection:
+  #     type: serial
+  #     device: /dev/ttyUSB0
+  #     baudrate: 9600

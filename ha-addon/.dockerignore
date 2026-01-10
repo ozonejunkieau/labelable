@@ -1,0 +1,17 @@
+# Don't copy these to the HA add-on build
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.git/
+.gitignore
+*.md
+!README.md
+tests/
+.env
+config.yaml
+templates/*.yaml
+!templates/_*.yaml

@@ -1,0 +1,8 @@
+# Home Assistant Add-on Repository
+# Add this repository to Home Assistant:
+# Settings → Add-ons → Add-on Store → ⋮ → Repositories
+# Enter: https://github.com/ozonejunkieau/labelable
+
+name: Labelable Add-ons
+url: https://github.com/ozonejunkieau/labelable
+maintainer: ozonejunkieau <ojau@somecloudthing.com>

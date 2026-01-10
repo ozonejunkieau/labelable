@@ -1,0 +1,99 @@
+# Example Label Template
+# This file demonstrates all available field types and features.
+# Copy this file (without the underscore prefix) and customize it for your labels.
+# Files starting with underscore are ignored by Labelable.
+
+name: example
+description: Example template demonstrating all field types
+
+dimensions:
+  width_mm: 100
+  height_mm: 60
+
+# List the actual printer names from your config.yaml
+# Example: if you have printers named "warehouse-zpl" and "office-epl"
+supported_printers:
+  - warehouse-zpl
+  - office-epl
+
+fields:
+  # String field - basic text input
+  - name: title
+    type: string
+    required: true
+    description: The main title text for the label
+
+  # String field with default value
+  - name: subtitle
+    type: string
+    required: false
+    default: ""
+    description: Optional subtitle text
+
+  # Integer field - whole numbers only
+  - name: count
+    type: integer
+    required: false
+    default: 1
+    description: Item count (whole number)
+
+  # Float field - decimal numbers
+  - name: weight
+    type: float
+    required: false
+    default: 0.0
+    description: Weight in kg (decimal allowed)
+
+  # Boolean field - renders as checkbox
+  - name: fragile
+    type: boolean
+    required: false
+    default: false
+    description: Mark as fragile
+
+  # Select field - renders as radio buttons
+  - name: priority
+    type: select
+    required: false
+    default: ""
+    options:
+      - ""          # Empty option (displays as "None" in UI)
+      - "Low"
+      - "Medium"
+      - "High"
+    description: Priority level
+
+  # Datetime field - auto-populated, not shown in form
+  - name: printed_at
+    type: datetime
+    format: "%Y-%m-%d %H:%M"  # strftime format (default: "%Y-%m-%d %H:%M")
+    description: When the label was printed
+
+  # User field - auto-populated from Home Assistant, not shown in form
+  - name: printed_by
+    type: user
+    description: Who printed the label (from HA user mapping)
+
+# Jinja2 template for ZPL printer
+# Available variables: all fields above plus "quantity" (number of labels)
+template: |
+  ^XA
+  ^CF0,40
+  ^FO50,20^FD{{ title }}^FS
+  {% if subtitle %}
+  ^CF0,25
+  ^FO50,70^FD{{ subtitle }}^FS
+  {% endif %}
+  ^CF0,20
+  ^FO50,110^FDCount: {{ count }} | Weight: {{ weight }}kg^FS
+  {% if fragile %}
+  ^FO50,140^FD*** FRAGILE ***^FS
+  {% endif %}
+  {% if priority %}
+  ^FO50,170^FDPriority: {{ priority }}^FS
+  {% endif %}
+  ^CF0,15
+  ^FO50,200^FD{{ printed_at }} by {{ printed_by }}^FS
+  ^FO50,220^FDLabel ^SN1,1,N of {{ quantity }}^FS
+  ^PQ{{ quantity }}
+  ^XZ
