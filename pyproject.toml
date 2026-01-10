@@ -1,6 +1,6 @@
 [project]
 name = "labelable"
-version = "0.0.1.dev6"
+version = "0.0.1.dev7"
 description = "A general purpose label printing API and basic UI"
 readme = "README.md"
 license = "MIT"
@@ -21,7 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
+    "pytest-asyncio>=0.23.0,<=0.23.7",  # Pinned for HA wheels compatibility
     "httpx>=0.28.0",
     "ruff>=0.8.0",
 ]

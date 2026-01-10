@@ -13,14 +13,14 @@ WORKDIR /app
 # Install uv
 RUN pip3 install --no-cache-dir --break-system-packages uv
 
-# Copy dependency files (no lockfile - let uv resolve fresh without dev deps)
-COPY pyproject.toml README.md ./
+# Copy dependency files
+COPY pyproject.toml uv.lock README.md ./
 
 # Copy application source
 COPY src/ ./src/
 
-# Install dependencies (production only)
-RUN uv sync --no-dev --no-editable
+# Install dependencies (no dev deps, frozen lockfile)
+RUN uv sync --no-dev --frozen
 
 # Copy example template
 COPY templates/_example.yaml ./templates/_example.yaml
