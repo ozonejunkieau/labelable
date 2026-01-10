@@ -19,8 +19,8 @@ COPY pyproject.toml uv.lock* README.md ./
 # Copy application source
 COPY src/ ./src/
 
-# Install dependencies (no dev deps, frozen lockfile)
-RUN uv sync --no-dev --frozen
+# Install dependencies (production only)
+RUN uv sync --no-dev --no-editable
 
 # Copy example template
 COPY templates/_example.yaml ./templates/_example.yaml
