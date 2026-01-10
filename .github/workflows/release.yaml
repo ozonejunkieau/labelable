@@ -91,7 +91,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ha-addon/Dockerfile
+          file: labelable/Dockerfile
           build-args: |
             BUILD_FROM=ghcr.io/home-assistant/${{ matrix.arch }}-base-python:3.13-alpine3.21
           platforms: linux/${{ matrix.arch == 'aarch64' && 'arm64' || matrix.arch == 'armv7' && 'arm/v7' || matrix.arch }}
