@@ -41,7 +41,7 @@ build:
 build-addon arch="amd64":
     docker build -t labelable-addon:local \
         -f ha-addon/Dockerfile \
-        --build-arg BUILD_FROM=ghcr.io/home-assistant/{{arch}}-base-python:3.13 \
+        --build-arg BUILD_FROM=ghcr.io/home-assistant/{{arch}}-base-python:3.13-alpine3.21 \
         .
 
 # Run local docker image
