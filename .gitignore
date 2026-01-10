@@ -49,7 +49,7 @@ htmlcov/
 .mypy_cache/
 
 # Local configuration (user-specific, use config.example.yaml as template)
-config.yaml
+/config.yaml
 
 # User templates (keep example template starting with underscore)
 templates/*.yaml

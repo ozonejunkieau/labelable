@@ -1,0 +1,37 @@
+name: Labelable
+version: "0.0.1.dev1"
+slug: labelable
+description: Label printing API and UI for thermal printers (Zebra ZPL/EPL2)
+url: https://github.com/ozonejunkieau/labelable
+image: ghcr.io/ozonejunkieau/labelable/ha-addon-{arch}
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+
+# Ingress for web UI (recommended)
+ingress: true
+ingress_port: 7979
+panel_icon: mdi:printer
+panel_title: Labelable
+
+# Optional: Direct port access for external API clients
+# Users must enable this in add-on configuration
+ports:
+  7979/tcp: null
+ports_description:
+  7979/tcp: "API access (optional, for external clients)"
+
+# Map config directory for persistent storage
+map:
+  - config:rw
+
+# Add-on options
+options:
+  config_file: /config/labelable/config.yaml
+  templates_dir: /config/labelable/templates
+
+schema:
+  config_file: str
+  templates_dir: str
