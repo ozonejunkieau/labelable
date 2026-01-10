@@ -13,8 +13,8 @@ WORKDIR /app
 # Install uv
 RUN pip3 install --no-cache-dir --break-system-packages uv
 
-# Copy dependency files first for better caching
-COPY pyproject.toml uv.lock* README.md ./
+# Copy dependency files (no lockfile - let uv resolve fresh without dev deps)
+COPY pyproject.toml README.md ./
 
 # Copy application source
 COPY src/ ./src/
