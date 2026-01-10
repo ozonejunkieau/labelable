@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv bashio
+#!/usr/bin/env bashio
 
 # Read configuration from Home Assistant add-on options
 CONFIG_FILE=$(bashio::config 'config_file')

@@ -25,9 +25,11 @@ RUN uv sync --no-dev --frozen
 # Copy example template
 COPY templates/_example.yaml ./templates/_example.yaml
 
-# Copy run script for s6-overlay
-COPY labelable/run.sh /etc/services.d/labelable/run
-RUN chmod a+x /etc/services.d/labelable/run
+# Copy run script
+COPY labelable/run.sh /
+RUN chmod a+x /run.sh
 
 # Expose port (for direct access if enabled)
 EXPOSE 7979
+
+CMD [ "/run.sh" ]
