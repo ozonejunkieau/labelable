@@ -32,4 +32,4 @@ RUN chmod a+x /run.sh
 # Expose port (for direct access if enabled)
 EXPOSE 7979
 
-CMD [ "/run.sh" ]
+ENTRYPOINT [ "/run.sh" ]

@@ -1,5 +1,5 @@
 name: Labelable
-version: "0.0.1.dev3"
+version: "0.0.1.dev4"
 slug: labelable
 description: Label printing API and UI for thermal printers (Zebra ZPL/EPL2)
 url: https://github.com/ozonejunkieau/labelable
@@ -7,6 +7,7 @@ image: ghcr.io/ozonejunkieau/labelable/ha-addon-{arch}
 arch:
   - amd64
   - aarch64
+init: false
 startup: application
 boot: auto
 
