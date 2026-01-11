@@ -37,22 +37,19 @@ class FieldRow(BaseModel):
 
 
 # Custom HTML template with dark mode support
-# {root_path} is replaced with the HA Ingress path prefix (or empty string)
+# {api_root_url} is the FastUI API root URL (e.g., /api or /api/hassio_ingress/<token>/api)
 _CUSTOM_HTML = """\
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="fastui:APIRootUrl" content="{api_root_url}" />
     <title>{title}</title>
     <script type="module" crossorigin \
 src="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/index.js"></script>
     <link rel="stylesheet" crossorigin \
 href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/index.css">
-    <script>
-      // Set root path for FastUI when behind HA Ingress proxy
-      window.fastUIRootPath = "{root_path}";
-    </script>
     <style>
       /* Mobile responsiveness */
       @media (max-width: 576px) {{
@@ -286,7 +283,7 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
     </style>
   </head>
   <body>
-    <div id="root" data-root-path="{root_path}"></div>
+    <div id="root"></div>
   </body>
 </html>
 """
@@ -778,5 +775,7 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
 async def spa_handler(request: Request, path: str) -> HTMLResponse:
     """Serve the FastUI SPA for all non-API routes."""
     # Get root_path from ASGI scope (set by IngressPathMiddleware)
+    # FastUI expects APIRootUrl to be the base for /api/ endpoints
     root_path = request.scope.get("root_path", "")
-    return HTMLResponse(_CUSTOM_HTML.format(title="Labelable", root_path=root_path))
+    api_root_url = f"{root_path}/api" if root_path else "/api"
+    return HTMLResponse(_CUSTOM_HTML.format(title="Labelable", api_root_url=api_root_url))
