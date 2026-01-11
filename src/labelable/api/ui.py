@@ -550,7 +550,7 @@ async def print_form(template_name: str) -> list[AnyComponent]:
                 c.Paragraph(text=status_text),
                 c.ModelForm(
                     model=_create_form_model(template, None),
-                    submit_url=f"/api/print/{template_name}/submit?printer={printer_name}",
+                    submit_url=f"/print/{template_name}/submit?printer={printer_name}",
                     display_mode="default",
                 ),
             ]
@@ -559,7 +559,7 @@ async def print_form(template_name: str) -> list[AnyComponent]:
                 c.Heading(text="Print", level=4),
                 c.ModelForm(
                     model=_create_form_model(template, compatible_printers),
-                    submit_url=f"/api/print/{template_name}/submit",
+                    submit_url=f"/print/{template_name}/submit",
                     display_mode="default",
                 ),
             ]
