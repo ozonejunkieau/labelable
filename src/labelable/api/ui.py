@@ -1,5 +1,6 @@
 """FastUI web interface for Labelable."""
 
+from importlib.metadata import version
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -11,6 +12,13 @@ from pydantic import BaseModel, Field
 from starlette.responses import HTMLResponse
 
 router = APIRouter()
+
+# Version and project info
+try:
+    __version__ = version("labelable")
+except Exception:
+    __version__ = "dev"
+GITHUB_URL = "https://github.com/ozonejunkieau/labelable"
 
 # Application state references (set during startup)
 _app_state: dict[str, Any] = {}
@@ -326,6 +334,15 @@ def _page_wrapper(*components: AnyComponent, title: str = "Labelable") -> list[A
             ],
         ),
         c.Page(components=list(components)),
+        c.Footer(
+            extra_text=f"Labelable v{__version__}",
+            links=[
+                c.Link(
+                    components=[c.Text(text="GitHub")],
+                    on_click=GoToEvent(url=GITHUB_URL),
+                ),
+            ],
+        ),
     ]
 
 

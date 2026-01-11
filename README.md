@@ -219,7 +219,17 @@ This automatically:
 | Zebra GK420d | Ethernet (TCP 9100) | ZPL |
 | Zebra LP2844 | RS232-WiFi adapter | EPL2 |
 
-## Development
+## Roadmap
+
+Planned features for future releases:
+
+- **Home Assistant Integration**: Native HA integration for printer monitoring (sensor entities for printer status, queue depth)
+- **Brother P-Touch Support**: Bitmap-based printing for Brother P-Touch label makers
+- **Print History**: Track recently printed labels with reprint functionality
+- **Label Preview**: Visual preview of labels before printing
+- **QR Code Fields**: Built-in QR code generation in templates
+
+## About
 
 This project was developed primarily using [Claude Code](https://claude.ai/code), Anthropic's AI coding assistant. Human oversight and direction provided by [@ozonejunkieau](https://github.com/ozonejunkieau).
 

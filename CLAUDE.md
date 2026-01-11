@@ -192,3 +192,65 @@ template: |
 2. Inherit from `BaseTemplateEngine`
 3. Implement `render(template, context) -> bytes`
 4. Register in engine factory
+
+## Release Process
+
+Before creating a tagged release, complete these steps:
+
+### 1. Update Version Numbers
+Update version in both files (they must match):
+- `pyproject.toml` - `version = "X.Y.Z"`
+- `labelable/config.yaml` - `version: "X.Y.Z"`
+
+### 2. Update Changelog
+Edit `labelable/CHANGELOG.md` (Home Assistant add-on changelog):
+- Add new version heading: `## X.Y.Z`
+- List changes as bullet points with `-` prefix
+- Place new version at the top (reverse chronological order)
+- Keep entries concise and user-focused
+
+Example:
+```markdown
+## 0.2.0
+
+- Add support for Brother P-Touch printers
+- Fix template validation error messages
+- Improve printer status caching
+
+## 0.1.0
+
+- Initial release
+...
+```
+
+### 3. Commit and Tag
+```bash
+git add -A
+git commit -m "Release vX.Y.Z"
+git tag vX.Y.Z
+git push && git push --tags
+```
+
+### 4. Verify Build
+GitHub Actions will automatically build container images. Verify the build succeeds:
+```bash
+gh run list --limit 1
+```
+
+## Home Assistant Ingress
+
+The UI must work both directly and via HA Ingress proxy. Key considerations:
+
+### URL Handling
+- HA Ingress sets `X-Ingress-Path` header with the proxy prefix
+- `IngressPathMiddleware` in `app.py` sets ASGI `root_path` from this header
+- FastUI needs two meta tags for correct URL handling:
+  - `fastui:APIRootUrl` - Base URL for API calls (e.g., `/api/hassio_ingress/<token>/api`)
+  - `fastui:APIPathStrip` - Prefix to strip from browser path before appending to APIRootUrl
+- Form `submit_url` must include full path since FastUI's `useRequest()` doesn't transform URLs
+
+### Testing Ingress Changes
+1. Update version, commit, tag, and push
+2. Wait for GitHub Actions build to complete
+3. Update add-on in Home Assistant
+4. Test both navigation and form submission via HA sidebar

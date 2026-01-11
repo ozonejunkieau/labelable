@@ -50,6 +50,7 @@ class TestUIComponents:
             "PageTitle",
             "Navbar",
             "Page",
+            "Footer",
             "Heading",
             "Paragraph",
             "Text",
@@ -178,3 +179,96 @@ class TestAPIRoutes:
         assert response.status_code == 200
         # May have the example template
         assert isinstance(response.json(), list)
+
+
+class TestIngressURLHandling:
+    """Test Home Assistant Ingress URL path handling.
+
+    These tests ensure that the URL handling works correctly when accessed
+    via Home Assistant Ingress, which proxies requests through a path like
+    /api/hassio_ingress/<token>/.
+
+    Regression tests for the ingress path doubling bug fixed in v0.1.0.
+    """
+
+    @pytest.fixture
+    def client(self) -> TestClient:
+        """Create a test client."""
+        app = create_app()
+        return TestClient(app)
+
+    def test_spa_handler_without_ingress(self, client: TestClient):
+        """Test SPA handler returns correct meta tags when accessed directly."""
+        response = client.get("/")
+        assert response.status_code == 200
+        html = response.text
+
+        # Without ingress, APIRootUrl should be /api
+        assert 'name="fastui:APIRootUrl" content="/api"' in html
+        # Without ingress, APIPathStrip should be empty
+        assert 'name="fastui:APIPathStrip" content=""' in html
+
+    def test_spa_handler_with_ingress_header(self, client: TestClient):
+        """Test SPA handler correctly handles X-Ingress-Path header."""
+        ingress_path = "/api/hassio_ingress/test-token-12345"
+        response = client.get("/", headers={"X-Ingress-Path": ingress_path})
+        assert response.status_code == 200
+        html = response.text
+
+        # With ingress, APIRootUrl should include ingress path + /api
+        expected_api_root = f'name="fastui:APIRootUrl" content="{ingress_path}/api"'
+        assert expected_api_root in html, f"Expected {expected_api_root} in HTML"
+
+        # With ingress, APIPathStrip should be the ingress path
+        expected_path_strip = f'name="fastui:APIPathStrip" content="{ingress_path}"'
+        assert expected_path_strip in html, f"Expected {expected_path_strip} in HTML"
+
+    def test_spa_handler_strips_trailing_slash_from_ingress_path(self, client: TestClient):
+        """Test that trailing slash is stripped from X-Ingress-Path."""
+        ingress_path = "/api/hassio_ingress/test-token/"
+        expected_path = "/api/hassio_ingress/test-token"  # No trailing slash
+        response = client.get("/", headers={"X-Ingress-Path": ingress_path})
+        assert response.status_code == 200
+        html = response.text
+
+        # Should use path without trailing slash
+        expected_api_root = f'name="fastui:APIRootUrl" content="{expected_path}/api"'
+        assert expected_api_root in html
+
+    def test_navigation_urls_work_with_ingress(self, client: TestClient):
+        """Test that FastUI API routes respond correctly when accessed via ingress.
+
+        This tests the server-side route matching when the request comes through
+        the ingress path. The actual URL is still /api/* since HA strips the
+        ingress prefix before forwarding.
+        """
+        # These routes should work - they're what the browser fetches
+        response = client.get("/api/")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/json"
+
+        response = client.get("/api/printers")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/json"
+
+    def test_footer_contains_version_and_github_link(self, client: TestClient):
+        """Test that API responses include footer with version info."""
+        response = client.get("/api/")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Find the Footer component in the response
+        footer = None
+        for component in data:
+            if component.get("type") == "Footer":
+                footer = component
+                break
+
+        assert footer is not None, "Footer component not found in response"
+        assert "Labelable v" in footer.get("extraText", ""), "Version not in footer"
+
+        # Check for GitHub link
+        links = footer.get("links", [])
+        assert len(links) > 0, "No links in footer"
+        github_link = links[0]
+        assert "GitHub" in str(github_link), "GitHub link not found"
