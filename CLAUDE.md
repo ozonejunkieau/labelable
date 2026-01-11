@@ -21,6 +21,9 @@ just test        # or: uv run pytest
 # Format and lint
 just fmt
 just lint
+
+# Install pre-commit hook (runs lint + tests before each commit)
+ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
 ```
 
 ## Architecture
@@ -94,7 +97,7 @@ Templates are YAML files with Jinja2 content for generating printer commands.
 - `boolean` - Checkbox (true/false)
 - `select` - Radio buttons (predefined options list)
 - `datetime` - Auto-populated with current timestamp (uses `format` for strftime)
-- `user` - Auto-populated from Home Assistant user (via `X-Hass-User-Id` header)
+- `user` - Auto-populated from Home Assistant user (via `X-Remote-User-Display-Name` header)
 
 Example template:
 ```yaml
@@ -147,9 +150,12 @@ template: |
 - Queue is lost on restart (intentional - no persistence)
 
 ### Home Assistant Integration
-- User ID passed via `X-Hass-User-Id` header when accessed via HA Ingress
-- Maps to display names via `user_mapping` in config
-- Falls back to `default_user` if no mapping found
+- HA Ingress provides user headers:
+  - `X-Remote-User-Id` - User's UUID
+  - `X-Remote-User-Name` - Username
+  - `X-Remote-User-Display-Name` - Display name
+- User ID can be mapped via `user_mapping` in config
+- Falls back to display name, then username, then `default_user`
 
 ## API Endpoints
 
@@ -196,6 +202,14 @@ template: |
 ## Release Process
 
 Before creating a tagged release, complete these steps:
+
+### 0. Verify Lint and Tests Pass
+**CRITICAL**: Always run lint and tests before committing:
+```bash
+just lint        # or: uv run ruff check src tests
+just test        # or: uv run pytest
+```
+Do NOT commit if either fails. Fix issues first.
 
 ### 1. Update Version Numbers
 Update version in both files (they must match):

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1.dev4
+
+- Fix HA user detection to use correct headers (X-Remote-User-Id/Name/Display-Name)
+- User field now falls back to HA display name if not in user_mapping
+- Add pre-commit hook for lint and test enforcement
+
 ## 0.1.1.dev3
 
 - Fix quantity doubling bug with smart detection in printer subclasses

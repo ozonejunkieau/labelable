@@ -439,18 +439,23 @@ async def home(request: Request) -> list[AnyComponent]:
 
     # Add user debug info if enabled
     if settings.show_user_debug:
-        ha_user_id = request.headers.get("X-Hass-User-Id", "")
+        # HA Ingress provides X-Remote-User-Id, X-Remote-User-Name, X-Remote-User-Display-Name
+        ha_user_id = request.headers.get("X-Remote-User-Id", "")
+        ha_user_name = request.headers.get("X-Remote-User-Name", "")
+        ha_display_name = request.headers.get("X-Remote-User-Display-Name", "")
         user_mapping = _app_state.get("user_mapping", {})
         resolved_user = user_mapping.get(ha_user_id, _app_state.get("default_user", ""))
 
         if ha_user_id:
-            debug_text = f"HA User ID: {ha_user_id}"
+            debug_text = f"HA User: {ha_display_name or ha_user_name or ha_user_id}"
             if resolved_user:
                 debug_text += f" → {resolved_user}"
+            elif ha_display_name:
+                debug_text += " (not in user_mapping, using display name)"
             else:
                 debug_text += " (not in user_mapping)"
         else:
-            debug_text = "No X-Hass-User-Id header detected"
+            debug_text = "No X-Remote-User-Id header detected (not via HA Ingress?)"
 
         page_components.append(
             c.Div(
@@ -694,17 +699,31 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
 def _resolve_user(request: Request) -> str:
     """Resolve the current user from request headers or config.
 
-    When accessed via Home Assistant Ingress, the X-Hass-User-Id header
-    contains the HA user's UUID. This is mapped to a display name via
-    user_mapping in config.yaml.
+    When accessed via Home Assistant Ingress, headers are provided:
+    - X-Remote-User-Id: The HA user's UUID
+    - X-Remote-User-Name: The username
+    - X-Remote-User-Display-Name: The display name
+
+    The user_id is mapped to a display name via user_mapping in config.yaml.
+    If not in mapping, falls back to display name, then username, then default.
     """
     user_mapping = _app_state.get("user_mapping", {})
     default_user = _app_state.get("default_user", "")
 
-    # Check for Home Assistant user ID header
-    ha_user_id = request.headers.get("X-Hass-User-Id")
+    # Check for Home Assistant user headers
+    ha_user_id = request.headers.get("X-Remote-User-Id")
+    ha_display_name = request.headers.get("X-Remote-User-Display-Name")
+    ha_user_name = request.headers.get("X-Remote-User-Name")
+
+    # Try user_mapping first
     if ha_user_id and ha_user_id in user_mapping:
         return user_mapping[ha_user_id]
+
+    # Fall back to display name or username from HA
+    if ha_display_name:
+        return ha_display_name
+    if ha_user_name:
+        return ha_user_name
 
     return default_user
 
