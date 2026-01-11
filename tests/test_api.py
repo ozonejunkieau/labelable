@@ -252,7 +252,7 @@ class TestIngressURLHandling:
         assert response.headers["content-type"] == "application/json"
 
     def test_footer_contains_version_and_github_link(self, client: TestClient):
-        """Test that API responses include footer with version info."""
+        """Test that API responses include footer with version info as GitHub link."""
         response = client.get("/api/")
         assert response.status_code == 200
         data = response.json()
@@ -265,10 +265,12 @@ class TestIngressURLHandling:
                 break
 
         assert footer is not None, "Footer component not found in response"
-        assert "Labelable v" in footer.get("extraText", ""), "Version not in footer"
 
-        # Check for GitHub link
+        # Check for version link (version text is now the GitHub link)
         links = footer.get("links", [])
         assert len(links) > 0, "No links in footer"
-        github_link = links[0]
-        assert "GitHub" in str(github_link), "GitHub link not found"
+        version_link = links[0]
+        # The link text should contain the version
+        assert "Labelable v" in str(version_link), "Version not in footer link"
+        # The link should point to GitHub
+        assert "github.com" in str(version_link), "GitHub URL not in footer link"

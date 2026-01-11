@@ -92,6 +92,7 @@ async def lifespan(app: FastAPI):
         _jinja_engine,
         user_mapping=_config.user_mapping,
         default_user=_config.default_user,
+        templates_path=templates_path,
     )
 
     logger.info("Labelable startup complete")

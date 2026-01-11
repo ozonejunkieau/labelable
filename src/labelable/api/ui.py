@@ -159,6 +159,23 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         margin-bottom: 2rem;
       }}
 
+      /* Footer styling */
+      footer {{
+        margin-top: 2rem;
+        padding: 1rem 0;
+        border-top: 1px solid #dee2e6;
+        text-align: center;
+        font-size: 0.875rem;
+      }}
+      footer a {{
+        color: #495057;
+        text-decoration: none;
+      }}
+      footer a:hover {{
+        color: #0d6efd;
+        text-decoration: underline;
+      }}
+
       @media (prefers-color-scheme: dark) {{
         :root {{
           color-scheme: dark;
@@ -288,6 +305,16 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         .fastui-react-select__indicator:hover {{
           color: #f8f9fa !important;
         }}
+        /* Footer dark mode */
+        footer {{
+          border-top-color: #495057;
+        }}
+        footer a {{
+          color: #adb5bd;
+        }}
+        footer a:hover {{
+          color: #6ea8fe;
+        }}
       }}
     </style>
   </head>
@@ -305,6 +332,7 @@ def set_app_state(
     jinja_engine: Any,
     user_mapping: dict[str, str] | None = None,
     default_user: str = "",
+    templates_path: Any = None,
 ) -> None:
     """Set application state references for the UI."""
     _app_state["printers"] = printers
@@ -313,6 +341,7 @@ def set_app_state(
     _app_state["jinja_engine"] = jinja_engine
     _app_state["user_mapping"] = user_mapping or {}
     _app_state["default_user"] = default_user
+    _app_state["templates_path"] = templates_path
 
 
 def _page_wrapper(*components: AnyComponent, title: str = "Labelable") -> list[AnyComponent]:
@@ -335,10 +364,9 @@ def _page_wrapper(*components: AnyComponent, title: str = "Labelable") -> list[A
         ),
         c.Page(components=list(components)),
         c.Footer(
-            extra_text=f"Labelable v{__version__}",
             links=[
                 c.Link(
-                    components=[c.Text(text="GitHub")],
+                    components=[c.Text(text=f"Labelable v{__version__}")],
                     on_click=GoToEvent(url=GITHUB_URL),
                 ),
             ],
@@ -391,6 +419,11 @@ async def home() -> list[AnyComponent]:
         c.Heading(text="Label Templates", level=2),
         c.Paragraph(text="Select a template to print:"),
         c.Div(class_name="row", components=template_cards),
+        c.Link(
+            components=[c.Text(text="Reload Templates")],
+            on_click=GoToEvent(url="/reload-templates"),
+            class_name="btn btn-secondary mt-3",
+        ),
     )
 
 
@@ -450,6 +483,33 @@ async def printers_page() -> list[AnyComponent]:
             ],
         ),
         title="Printers - Labelable",
+    )
+
+
+@router.get("/api/reload-templates", response_model=FastUI, response_model_exclude_none=True)
+@router.post("/api/reload-templates", response_model=FastUI, response_model_exclude_none=True)
+async def reload_templates() -> list[AnyComponent]:
+    """Reload templates from disk."""
+    from labelable.config import load_templates
+
+    templates_path = _app_state.get("templates_path")
+    if templates_path:
+        new_templates = load_templates(templates_path)
+        _app_state["templates"].clear()
+        _app_state["templates"].update(new_templates)
+        count = len(new_templates)
+        message = f"Reloaded {count} template{'s' if count != 1 else ''} from disk."
+    else:
+        message = "Templates path not configured."
+
+    return _page_wrapper(
+        c.Heading(text="Templates Reloaded", level=2),
+        c.Paragraph(text=message),
+        c.Link(
+            components=[c.Text(text="<- Back to templates")],
+            on_click=GoToEvent(url="/"),
+        ),
+        title="Reload - Labelable",
     )
 
 

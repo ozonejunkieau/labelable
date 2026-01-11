@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1.dev1
+
+- Fix template validation to pass through built-in variables like `quantity`
+- Add "Reload Templates" button to home page for reloading templates from disk
+- Improve footer styling with better contrast and version link to GitHub
+
 ## 0.1.0
 
 - Initial release

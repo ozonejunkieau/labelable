@@ -63,8 +63,12 @@ class TemplateConfig(BaseModel):
 
         Returns the validated data with defaults applied.
         Raises ValueError if required fields are missing or types don't match.
+
+        Built-in variables (like 'quantity') are passed through unchanged.
         """
-        result = {}
+        # Start with built-in variables that aren't template fields
+        field_names = {f.name for f in self.fields}
+        result = {k: v for k, v in data.items() if k not in field_names}
 
         for field in self.fields:
             if field.type == FieldType.DATETIME:
