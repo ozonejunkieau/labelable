@@ -441,8 +441,12 @@ async def printers_page() -> list[AnyComponent]:
     response_model=FastUI,
     response_model_exclude_none=True,
 )
-async def print_form(template_name: str) -> list[AnyComponent]:
+async def print_form(request: Request, template_name: str) -> list[AnyComponent]:
     """Print form for a specific template."""
+    # Get API root URL for form submission (FastUI doesn't transform submit URLs)
+    root_path = request.scope.get("root_path", "")
+    api_root = f"{root_path}/api" if root_path else "/api"
+
     templates = _app_state.get("templates", {})
     printers = _app_state.get("printers", {})
     queue = _app_state.get("queue")
@@ -550,7 +554,7 @@ async def print_form(template_name: str) -> list[AnyComponent]:
                 c.Paragraph(text=status_text),
                 c.ModelForm(
                     model=_create_form_model(template, None),
-                    submit_url=f"/print/{template_name}/submit?printer={printer_name}",
+                    submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
                     display_mode="default",
                 ),
             ]
@@ -559,7 +563,7 @@ async def print_form(template_name: str) -> list[AnyComponent]:
                 c.Heading(text="Print", level=4),
                 c.ModelForm(
                     model=_create_form_model(template, compatible_printers),
-                    submit_url=f"/print/{template_name}/submit",
+                    submit_url=f"{api_root}/print/{template_name}/submit",
                     display_mode="default",
                 ),
             ]
