@@ -138,6 +138,29 @@ class EPL2Printer(BasePrinter):
 
         await self._send(data)
 
+    async def print_with_quantity(self, data: bytes, quantity: int) -> None:
+        """Send EPL2 data with quantity handling.
+
+        EPL2 uses 'P' command for printing, optionally with quantity (P1, P2, etc.).
+        If data contains 'Pn' where n > 1, assume template handles quantity.
+        Otherwise, loop quantity times.
+        """
+        import re
+
+        # Check for P command with quantity > 1 (e.g., P2, P3, P10)
+        # Pattern: P followed by digits, where the number is > 1
+        match = re.search(rb"P(\d+)", data)
+        if match:
+            qty_in_template = int(match.group(1))
+            if qty_in_template > 1:
+                # Template handles quantity natively
+                await self.print_raw(data)
+                return
+
+        # Fall back to looping
+        for _ in range(quantity):
+            await self.print_raw(data)
+
     async def _send(self, data: bytes) -> None:
         """Send data to the printer."""
         if self._writer:

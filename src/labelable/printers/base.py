@@ -93,6 +93,20 @@ class BasePrinter(ABC):
         """
         pass
 
+    async def print_with_quantity(self, data: bytes, quantity: int) -> None:
+        """Send data to printer with quantity handling.
+
+        Default implementation loops `quantity` times calling print_raw.
+        Subclasses can override to detect native quantity commands in their
+        protocol (e.g., ^PQ for ZPL) and skip looping when present.
+
+        Args:
+            data: Raw printer command data.
+            quantity: Number of copies to print.
+        """
+        for _ in range(quantity):
+            await self.print_raw(data)
+
     async def __aenter__(self) -> "BasePrinter":
         """Async context manager entry."""
         await self.connect()

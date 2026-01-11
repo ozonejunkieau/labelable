@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 7979
     debug: bool = False
+    show_user_debug: bool = True  # Show HA user ID on home page for debugging user_mapping
 
 
 def load_config(config_path: Path) -> AppConfig:

@@ -133,10 +133,10 @@ class PrintQueue:
                     if not printer.is_connected:
                         await printer.connect()
 
-                    # Print the job (for each copy in quantity)
+                    # Print the job with quantity handling
+                    # Printer subclass decides whether to loop or use native command
                     if job.rendered_content:
-                        for _ in range(job.quantity):
-                            await printer.print_raw(job.rendered_content)
+                        await printer.print_with_quantity(job.rendered_content, job.quantity)
 
                     job.status = JobStatus.COMPLETED
                     logger.info(f"Job {job.id} completed")

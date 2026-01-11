@@ -383,8 +383,10 @@ def _page_wrapper(*components: AnyComponent, title: str = "Labelable") -> list[A
 
 
 @router.get("/api/", response_model=FastUI, response_model_exclude_none=True)
-async def home() -> list[AnyComponent]:
+async def home(request: Request) -> list[AnyComponent]:
     """Home page - list of templates."""
+    from labelable.config import settings
+
     templates = _app_state.get("templates", {})
 
     if not templates:
@@ -423,7 +425,8 @@ async def home() -> list[AnyComponent]:
             )
         )
 
-    return _page_wrapper(
+    # Build page components
+    page_components: list[AnyComponent] = [
         c.Heading(text="Label Templates", level=2),
         c.Paragraph(text="Select a template to print:"),
         c.Div(class_name="row", components=template_cards),
@@ -432,7 +435,31 @@ async def home() -> list[AnyComponent]:
             on_click=GoToEvent(url="/reload-templates"),
             class_name="btn btn-secondary mt-3",
         ),
-    )
+    ]
+
+    # Add user debug info if enabled
+    if settings.show_user_debug:
+        ha_user_id = request.headers.get("X-Hass-User-Id", "")
+        user_mapping = _app_state.get("user_mapping", {})
+        resolved_user = user_mapping.get(ha_user_id, _app_state.get("default_user", ""))
+
+        if ha_user_id:
+            debug_text = f"HA User ID: {ha_user_id}"
+            if resolved_user:
+                debug_text += f" → {resolved_user}"
+            else:
+                debug_text += " (not in user_mapping)"
+        else:
+            debug_text = "No X-Hass-User-Id header detected"
+
+        page_components.append(
+            c.Div(
+                class_name="mt-4 text-muted small",
+                components=[c.Text(text=debug_text)],
+            )
+        )
+
+    return _page_wrapper(*page_components)
 
 
 @router.get("/api/printers", response_model=FastUI, response_model_exclude_none=True)

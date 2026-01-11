@@ -147,6 +147,20 @@ class ZPLPrinter(BasePrinter):
 
         await self._send(data)
 
+    async def print_with_quantity(self, data: bytes, quantity: int) -> None:
+        """Send ZPL data with quantity handling.
+
+        If the data contains ^PQ (Print Quantity) command, the printer handles
+        quantity natively and we send once. Otherwise, we loop quantity times.
+        """
+        if b"^PQ" in data:
+            # Template uses native ZPL quantity command
+            await self.print_raw(data)
+        else:
+            # Fall back to looping
+            for _ in range(quantity):
+                await self.print_raw(data)
+
     async def _send(self, data: bytes) -> None:
         """Send data to the printer."""
         if self._writer:

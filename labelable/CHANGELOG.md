@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1.dev3
+
+- Fix quantity doubling bug with smart detection in printer subclasses
+  - ZPLPrinter detects ^PQ command and skips looping when present
+  - EPL2Printer detects P command with quantity > 1 and skips looping when present
+  - BasePrinter provides default loop behavior for templates without native quantity commands
+- Add unit tests for printer quantity handling
+- Add HA user ID debug display on home page (controlled by LABELABLE_SHOW_USER_DEBUG env var)
+
 ## 0.1.1.dev2
 
 - Fix footer link contrast by overriding FastUI's .text-muted class
