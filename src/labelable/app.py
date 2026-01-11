@@ -4,8 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import Depends, FastAPI
 
 from labelable.api import routes as api_routes
 from labelable.api import ui as ui_routes
@@ -15,14 +14,24 @@ from labelable.queue import PrintQueue
 from labelable.templates.jinja_engine import JinjaTemplateEngine
 
 
-class IngressPathMiddleware(BaseHTTPMiddleware):
-    """Middleware to handle Home Assistant Ingress path prefix."""
+class IngressPathMiddleware:
+    """Middleware to handle Home Assistant Ingress path prefix.
 
-    async def dispatch(self, request: Request, call_next):
-        # Store ingress path in request state for use by UI
-        ingress_path = request.headers.get("X-Ingress-Path", "")
-        request.state.ingress_path = ingress_path.rstrip("/")
-        return await call_next(request)
+    Sets the ASGI root_path from X-Ingress-Path header so FastAPI
+    and FastUI properly handle the ingress proxy prefix.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            ingress_path = headers.get(b"x-ingress-path", b"").decode()
+            if ingress_path:
+                scope = scope.copy()
+                scope["root_path"] = ingress_path.rstrip("/")
+        await self.app(scope, receive, send)
 
 
 logger = logging.getLogger(__name__)

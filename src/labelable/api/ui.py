@@ -777,6 +777,6 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
 @router.get("/{path:path}", response_class=HTMLResponse)
 async def spa_handler(request: Request, path: str) -> HTMLResponse:
     """Serve the FastUI SPA for all non-API routes."""
-    # Get ingress path from middleware (empty string if not behind HA proxy)
-    root_path = getattr(request.state, "ingress_path", "")
+    # Get root_path from ASGI scope (set by IngressPathMiddleware)
+    root_path = request.scope.get("root_path", "")
     return HTMLResponse(_CUSTOM_HTML.format(title="Labelable", root_path=root_path))
