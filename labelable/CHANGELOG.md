@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1.dev2
+
+- Fix footer link contrast by overriding FastUI's .text-muted class
+
 ## 0.1.1.dev1
 
 - Fix template validation to pass through built-in variables like `quantity`

@@ -159,7 +159,7 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         margin-bottom: 2rem;
       }}
 
-      /* Footer styling */
+      /* Footer styling - override .text-muted from FastUI */
       footer {{
         margin-top: 2rem;
         padding: 1rem 0;
@@ -167,12 +167,16 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         text-align: center;
         font-size: 0.875rem;
       }}
-      footer a {{
-        color: #495057;
+      footer a,
+      footer a.text-muted,
+      footer .nav-link.text-muted {{
+        color: #495057 !important;
         text-decoration: none;
       }}
-      footer a:hover {{
-        color: #0d6efd;
+      footer a:hover,
+      footer a.text-muted:hover,
+      footer .nav-link.text-muted:hover {{
+        color: #0d6efd !important;
         text-decoration: underline;
       }}
 
@@ -305,15 +309,19 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         .fastui-react-select__indicator:hover {{
           color: #f8f9fa !important;
         }}
-        /* Footer dark mode */
+        /* Footer dark mode - override .text-muted */
         footer {{
           border-top-color: #495057;
         }}
-        footer a {{
-          color: #adb5bd;
+        footer a,
+        footer a.text-muted,
+        footer .nav-link.text-muted {{
+          color: #adb5bd !important;
         }}
-        footer a:hover {{
-          color: #6ea8fe;
+        footer a:hover,
+        footer a.text-muted:hover,
+        footer .nav-link.text-muted:hover {{
+          color: #6ea8fe !important;
         }}
       }}
     </style>
