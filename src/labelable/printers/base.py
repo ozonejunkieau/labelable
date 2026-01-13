@@ -2,6 +2,7 @@
 
 import time
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from labelable.models.printer import PrinterConfig
 
@@ -18,6 +19,7 @@ class BasePrinter(ABC):
         self._connected = False
         self._cached_online: bool | None = None
         self._cache_time: float = 0.0
+        self._last_checked: datetime | None = None  # Absolute time of last status check
         self._model_info: str | None = None  # Cached model/version info
 
     @property
@@ -42,6 +44,12 @@ class BasePrinter(ABC):
         """Update the cached online status."""
         self._cached_online = online
         self._cache_time = time.monotonic()
+        self._last_checked = datetime.now()
+
+    @property
+    def last_checked(self) -> datetime | None:
+        """Get the absolute time of the last status check."""
+        return self._last_checked
 
     @property
     def model_info(self) -> str | None:

@@ -33,6 +33,7 @@ class PrinterRow(BaseModel):
     model: str
     status: str
     queue: str
+    last_checked: str
 
 
 class FieldRow(BaseModel):
@@ -159,7 +160,7 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         margin-bottom: 2rem;
       }}
 
-      /* Footer styling - override .text-muted from FastUI */
+      /* Footer styling - high contrast override */
       footer {{
         margin-top: 2rem;
         padding: 1rem 0;
@@ -169,14 +170,17 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
       }}
       footer a,
       footer a.text-muted,
-      footer .nav-link.text-muted {{
-        color: #495057 !important;
+      footer .nav-link,
+      footer .nav-link.text-muted,
+      footer * {{
+        color: #0d6efd !important;
         text-decoration: none;
       }}
       footer a:hover,
       footer a.text-muted:hover,
+      footer .nav-link:hover,
       footer .nav-link.text-muted:hover {{
-        color: #0d6efd !important;
+        color: #0a58ca !important;
         text-decoration: underline;
       }}
 
@@ -309,19 +313,22 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         .fastui-react-select__indicator:hover {{
           color: #f8f9fa !important;
         }}
-        /* Footer dark mode - override .text-muted */
+        /* Footer dark mode - bright blue for visibility */
         footer {{
           border-top-color: #495057;
         }}
         footer a,
         footer a.text-muted,
-        footer .nav-link.text-muted {{
-          color: #adb5bd !important;
+        footer .nav-link,
+        footer .nav-link.text-muted,
+        footer * {{
+          color: #6ea8fe !important;
         }}
         footer a:hover,
         footer a.text-muted:hover,
+        footer .nav-link:hover,
         footer .nav-link.text-muted:hover {{
-          color: #6ea8fe !important;
+          color: #9ec5fe !important;
         }}
       }}
     </style>
@@ -498,6 +505,12 @@ async def printers_page() -> list[AnyComponent]:
         elif hasattr(conn, "device"):
             status = f"{status} ({conn.device})"
 
+        # Format last checked time
+        if printer.last_checked:
+            last_checked = printer.last_checked.strftime("%H:%M:%S")
+        else:
+            last_checked = "-"
+
         queue_size = queue.get_queue_size(name) if queue else 0
         rows.append(
             PrinterRow(
@@ -506,6 +519,7 @@ async def printers_page() -> list[AnyComponent]:
                 model=printer.model_info or "-",
                 status=status,
                 queue=str(queue_size),
+                last_checked=last_checked,
             )
         )
 
@@ -520,6 +534,7 @@ async def printers_page() -> list[AnyComponent]:
                 DisplayLookup(field="model", title="Model"),
                 DisplayLookup(field="status", title="Status"),
                 DisplayLookup(field="queue", title="Queue"),
+                DisplayLookup(field="last_checked", title="Last Checked"),
             ],
         ),
         title="Printers - Labelable",
@@ -530,27 +545,45 @@ async def printers_page() -> list[AnyComponent]:
 @router.post("/api/reload-templates", response_model=FastUI, response_model_exclude_none=True)
 async def reload_templates() -> list[AnyComponent]:
     """Reload templates from disk."""
+    import logging
+
     from labelable.config import load_templates
 
+    logger = logging.getLogger(__name__)
+
     templates_path = _app_state.get("templates_path")
+    details: list[str] = []
     if templates_path:
+        logger.info(f"Reloading templates from {templates_path}")
         new_templates = load_templates(templates_path)
         _app_state["templates"].clear()
         _app_state["templates"].update(new_templates)
         count = len(new_templates)
-        message = f"Reloaded {count} template{'s' if count != 1 else ''} from disk."
+        message = f"Reloaded {count} template{'s' if count != 1 else ''} from {templates_path}"
+        # Build details for each template
+        for name, tmpl in new_templates.items():
+            printers = ", ".join(tmpl.supported_printers) if tmpl.supported_printers else "(none)"
+            details.append(f"{name}: supported_printers=[{printers}]")
+            logger.info(f"  Loaded template '{name}' with supported_printers={tmpl.supported_printers}")
     else:
         message = "Templates path not configured."
 
-    return _page_wrapper(
+    components: list[AnyComponent] = [
         c.Heading(text="Templates Reloaded", level=2),
         c.Paragraph(text=message),
+    ]
+    if details:
+        components.append(c.Heading(text="Loaded Templates", level=4))
+        for detail in details:
+            components.append(c.Paragraph(text=detail))
+    components.append(
         c.Link(
-            components=[c.Text(text="<- Back to templates")],
+            components=[c.Text(text="← Back to templates")],
             on_click=GoToEvent(url="/"),
         ),
-        title="Reload - Labelable",
     )
+
+    return _page_wrapper(*components, title="Reload - Labelable")
 
 
 @router.get(
@@ -669,21 +702,35 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
             form_components = [
                 c.Heading(text="Print", level=4),
                 c.Paragraph(text=status_text),
+            ]
+            # Show fixed quantity if set
+            if template.quantity is not None:
+                form_components.append(
+                    c.Paragraph(text=f"Quantity: {template.quantity} (fixed)")
+                )
+            form_components.append(
                 c.ModelForm(
                     model=_create_form_model(template, None),
                     submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
                     display_mode="default",
                 ),
-            ]
+            )
         else:
             form_components = [
                 c.Heading(text="Print", level=4),
+            ]
+            # Show fixed quantity if set
+            if template.quantity is not None:
+                form_components.append(
+                    c.Paragraph(text=f"Quantity: {template.quantity} (fixed)")
+                )
+            form_components.append(
                 c.ModelForm(
                     model=_create_form_model(template, compatible_printers),
                     submit_url=f"{api_root}/print/{template_name}/submit",
                     display_mode="default",
                 ),
-            ]
+            )
 
     return _page_wrapper(
         *template_info,
@@ -757,7 +804,12 @@ async def submit_print(
 
     # Extract printer (from query param or form) and quantity
     printer_name = printer or form_data.pop("printer", None)
-    quantity = int(form_data.pop("quantity", 1))
+    # Use fixed quantity from template if set, otherwise from form
+    if template.quantity is not None:
+        quantity = template.quantity
+        form_data.pop("quantity", None)  # Remove from form data if present
+    else:
+        quantity = int(form_data.pop("quantity", 1))
 
     # Populate USER fields from request context
     from labelable.models.template import FieldType
@@ -851,8 +903,9 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
         fields["printer"] = (PrinterEnum, Field(title="Printer"))
     # If compatible_printers is None, printer comes from query param - no field needed
 
-    # Quantity field
-    fields["quantity"] = (int, Field(default=1, ge=1, title="Quantity"))
+    # Quantity field - only show if template doesn't have fixed quantity
+    if template.quantity is None:
+        fields["quantity"] = (int, Field(default=1, ge=1, title="Quantity"))
 
     # Template fields
     for field in template.fields:

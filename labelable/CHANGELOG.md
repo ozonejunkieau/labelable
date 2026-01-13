@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1.dev5
+
+- Add `last_checked` timestamp to printers API and UI
+- Add `md5` Jinja filter for template hashing (e.g., `{{ name | md5 }}`)
+- Add fixed quantity support in templates (`quantity: N` in YAML skips quantity input)
+- Improve footer contrast with blue links instead of gray
+- Enhanced reload templates page shows `supported_printers` for each template
+- Add HA REST sensor documentation for monitoring printer status
+- Add version consistency check to pre-commit hook
+
 ## 0.1.1.dev4
 
 - Fix HA user detection to use correct headers (X-Remote-User-Id/Name/Display-Name)

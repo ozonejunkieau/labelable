@@ -1,6 +1,7 @@
 """REST API routes for Labelable."""
 
 import secrets
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -85,6 +86,7 @@ class PrinterStatus(BaseModel):
     type: PrinterType
     online: bool
     queue_size: int
+    last_checked: datetime | None = None
 
 
 class TemplateInfo(BaseModel):
@@ -133,6 +135,7 @@ async def list_printers() -> list[PrinterStatus]:
                 type=printer.config.type,
                 online=online,
                 queue_size=queue_size,
+                last_checked=printer.last_checked,
             )
         )
     return result
@@ -156,6 +159,7 @@ async def get_printer(name: str) -> PrinterStatus:
         type=printer.config.type,
         online=online,
         queue_size=queue_size,
+        last_checked=printer.last_checked,
     )
 
 

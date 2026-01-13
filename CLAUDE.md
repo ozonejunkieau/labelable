@@ -157,6 +157,38 @@ template: |
 - User ID can be mapped via `user_mapping` in config
 - Falls back to display name, then username, then `default_user`
 
+### HA Printer Status Sensors
+To monitor printer status in Home Assistant dashboards or automations, use REST sensors.
+Add to your HA `configuration.yaml`:
+
+```yaml
+rest:
+  - resource: http://localhost:7979/api/v1/printers
+    scan_interval: 60
+    sensor:
+      - name: "Label Printer Status"
+        value_template: "{{ value_json[0].online }}"
+        json_attributes_path: "$[0]"
+        json_attributes:
+          - name
+          - type
+          - queue_size
+          - last_checked
+
+# Or for a specific printer:
+sensor:
+  - platform: rest
+    name: "Warehouse Printer"
+    resource: http://localhost:7979/api/v1/printers/warehouse-zpl
+    value_template: "{{ 'Online' if value_json.online else 'Offline' }}"
+    json_attributes:
+      - queue_size
+      - last_checked
+    scan_interval: 60
+```
+
+Note: Replace `localhost:7979` with the add-on's internal hostname if accessing from HA Core.
+
 ## API Endpoints
 
 | Method | Path | Description |

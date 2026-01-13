@@ -1,11 +1,17 @@
 """Jinja2 template engine for ZPL/EPL2 printers."""
 
+import hashlib
 from typing import Any
 
 from jinja2 import BaseLoader, Environment, TemplateSyntaxError, UndefinedError
 
 from labelable.models.template import TemplateConfig
 from labelable.templates.engine import BaseTemplateEngine, TemplateError
+
+
+def _md5_filter(value: str) -> str:
+    """Return MD5 hash of a string (hex digest)."""
+    return hashlib.md5(value.encode("utf-8")).hexdigest()
 
 
 class StringLoader(BaseLoader):
@@ -30,6 +36,8 @@ class JinjaTemplateEngine(BaseTemplateEngine):
             autoescape=False,  # No HTML escaping for printer commands
             keep_trailing_newline=True,
         )
+        # Add custom filters
+        self._env.filters["md5"] = _md5_filter
 
     def render(self, template: TemplateConfig, context: dict[str, Any]) -> bytes:
         """Render a Jinja2 template with the given context.

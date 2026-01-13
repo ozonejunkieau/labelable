@@ -50,6 +50,7 @@ class TemplateConfig(BaseModel):
     supported_printers: list[str] = Field(default_factory=list)  # Printer names from config
     fields: list[TemplateField] = Field(default_factory=list)
     template: str  # Jinja2 template content
+    quantity: int | None = None  # Fixed quantity - if set, user cannot change it
 
     def get_field(self, name: str) -> TemplateField | None:
         """Get a field by name."""
