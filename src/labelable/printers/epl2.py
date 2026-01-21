@@ -2,23 +2,29 @@
 
 import asyncio
 import logging
+import os
 
+import aiohttp
 import serial
 
-from labelable.models.printer import PrinterConfig, SerialConnection, TCPConnection
+from labelable.models.printer import HAConnection, PrinterConfig, SerialConnection, TCPConnection
 from labelable.printers.base import BasePrinter, PrinterError
 
 logger = logging.getLogger(__name__)
 
 
 class EPL2Printer(BasePrinter):
-    """Zebra EPL2 printer implementation supporting TCP and serial connections."""
+    """Zebra EPL2 printer implementation supporting TCP, serial, and HA connections."""
 
     def __init__(self, config: PrinterConfig) -> None:
         super().__init__(config)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._serial: serial.Serial | None = None
+        # HA connection state
+        self._ha_session: aiohttp.ClientSession | None = None
+        self._ha_device_id: str | None = None
+        self._ha_url: str | None = None
 
     async def connect(self) -> None:
         """Establish connection to the EPL2 printer."""
@@ -30,6 +36,8 @@ class EPL2Printer(BasePrinter):
             await self._connect_tcp(conn)
         elif isinstance(conn, SerialConnection):
             await self._connect_serial(conn)
+        elif isinstance(conn, HAConnection):
+            await self._connect_ha(conn)
         else:
             raise PrinterError(f"Unsupported connection type for EPL2: {type(conn)}")
 
@@ -61,6 +69,31 @@ class EPL2Printer(BasePrinter):
         except serial.SerialException as e:
             raise ConnectionError(f"Failed to open serial port {conn.device}: {e}") from e
 
+    async def _connect_ha(self, conn: HAConnection) -> None:
+        """Connect via Home Assistant zebra_printer integration."""
+        headers = {}
+        if conn.ha_token:
+            headers["Authorization"] = f"Bearer {conn.ha_token}"
+        elif os.environ.get("SUPERVISOR_TOKEN"):
+            headers["Authorization"] = f"Bearer {os.environ['SUPERVISOR_TOKEN']}"
+
+        self._ha_session = aiohttp.ClientSession(headers=headers)
+        self._ha_device_id = conn.device_id
+        self._ha_url = conn.ha_url.rstrip("/")
+
+    async def _send_via_ha(self, data: bytes) -> None:
+        """Send data to printer via Home Assistant service call."""
+        if not self._ha_session:
+            raise ConnectionError("HA session not initialized")
+
+        async with self._ha_session.post(
+            f"{self._ha_url}/api/services/zebra_printer/print_raw",
+            json={"device_id": self._ha_device_id, "data": data.decode("latin-1")},
+        ) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                raise ConnectionError(f"HA service call failed: {resp.status} - {text}")
+
     async def disconnect(self) -> None:
         """Close connection to the printer."""
         if self._writer:
@@ -75,6 +108,12 @@ class EPL2Printer(BasePrinter):
         if self._serial:
             self._serial.close()
             self._serial = None
+
+        if self._ha_session:
+            await self._ha_session.close()
+            self._ha_session = None
+            self._ha_device_id = None
+            self._ha_url = None
 
         self._connected = False
 
@@ -169,6 +208,8 @@ class EPL2Printer(BasePrinter):
         elif self._serial:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, self._serial.write, data)
+        elif self._ha_session:
+            await self._send_via_ha(data)
         else:
             raise ConnectionError("No connection available")
 

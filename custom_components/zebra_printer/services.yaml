@@ -1,0 +1,53 @@
+print_raw:
+  name: Print Raw
+  description: Send raw ZPL or EPL2 data to the printer.
+  fields:
+    device_id:
+      name: Device
+      description: The printer device to send data to.
+      required: true
+      selector:
+        device:
+          integration: zebra_printer
+    data:
+      name: Data
+      description: The raw ZPL or EPL2 data to send to the printer.
+      required: true
+      example: "^XA^FO50,50^FDHello World^FS^XZ"
+      selector:
+        text:
+          multiline: true
+
+calibrate:
+  name: Calibrate
+  description: Run media calibration on the printer.
+  fields:
+    device_id:
+      name: Device
+      description: The printer device to calibrate.
+      required: true
+      selector:
+        device:
+          integration: zebra_printer
+
+feed:
+  name: Feed
+  description: Feed labels through the printer.
+  fields:
+    device_id:
+      name: Device
+      description: The printer device to feed labels on.
+      required: true
+      selector:
+        device:
+          integration: zebra_printer
+    count:
+      name: Count
+      description: Number of labels to feed.
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: slider

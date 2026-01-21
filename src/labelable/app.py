@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI
 
 from labelable.api import routes as api_routes
 from labelable.api import ui as ui_routes
-from labelable.config import AppConfig, load_config, load_templates, settings
+from labelable.config import AppConfig, load_config_async, load_templates, settings
 from labelable.printers import BasePrinter, create_printer
 from labelable.queue import PrintQueue
 from labelable.templates.jinja_engine import JinjaTemplateEngine
@@ -49,9 +49,9 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
     global _printers, _templates, _queue, _jinja_engine, _config
 
-    # Load configuration
+    # Load configuration (with optional HA auto-discovery)
     logger.info(f"Loading configuration from {settings.config_file}")
-    _config = load_config(settings.config_file)
+    _config = await load_config_async(settings.config_file)
 
     # Load templates
     templates_path = Path(_config.templates_dir)

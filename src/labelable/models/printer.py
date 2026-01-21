@@ -20,6 +20,7 @@ class ConnectionType(StrEnum):
     TCP = "tcp"
     SERIAL = "serial"
     BLUETOOTH = "bluetooth"
+    HA = "ha"
 
 
 class TCPConnection(BaseModel):
@@ -48,8 +49,20 @@ class BluetoothConnection(BaseModel):
     address: str
 
 
+class HAConnection(BaseModel):
+    """Home Assistant zebra_printer integration connection.
+
+    Uses the HA zebra_printer integration as a transport layer.
+    """
+
+    type: Literal["ha"] = "ha"
+    device_id: str  # HA config entry ID or device ID
+    ha_url: str = "http://supervisor/core"
+    ha_token: str | None = None  # Optional if running as addon (uses SUPERVISOR_TOKEN)
+
+
 ConnectionConfig = Annotated[
-    TCPConnection | SerialConnection | BluetoothConnection,
+    TCPConnection | SerialConnection | BluetoothConnection | HAConnection,
     Field(discriminator="type"),
 ]
 

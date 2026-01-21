@@ -10,6 +10,7 @@ A general purpose label printing API and web UI for home use.
 - **Web UI**: Simple browser-based interface for manual label printing
 - **Print Queue**: Automatic queuing when printers are offline
 - **Home Assistant Integration**: Ingress support, user mapping, API authentication
+- **HA Custom Integration**: Native Zebra printer integration with DHCP discovery and sensor entities
 
 ## Installation
 
@@ -219,11 +220,44 @@ This automatically:
 | Zebra GK420d | Ethernet (TCP 9100) | ZPL |
 | Zebra LP2844 | RS232-WiFi adapter | EPL2 |
 
+## Zebra Printer HA Integration
+
+This repository includes a native Home Assistant custom integration for Zebra printers (`custom_components/zebra_printer/`).
+
+### Features
+
+- **DHCP Discovery**: Automatically detects Zebra printers on your network by MAC address
+- **Protocol Auto-Detection**: Probes printers to determine ZPL or EPL2 protocol
+- **Rich Sensors**: Model, firmware, labels printed, head distance, print speed, and more
+- **Binary Sensors**: Online status, paper out, head open, ribbon out, paused, buffer full
+- **Services**: `print_raw`, `calibrate`, `feed` for automations
+
+### Installation via HACS
+
+1. Add this repository to HACS as a custom repository
+2. Install "Zebra Printer" integration
+3. Go to **Settings → Devices & Services → Add Integration → Zebra Printer**
+4. Enter your printer's IP address (or let DHCP discovery find it)
+
+### Labelable + HA Integration
+
+When running Labelable as an HA add-on, you can configure printers to use the HA integration as a transport layer:
+
+```yaml
+printers:
+  - name: warehouse-printer
+    type: zpl
+    connection:
+      type: ha
+      device_id: warehouse_zebra  # HA device ID from the integration
+```
+
+This allows Labelable to print via the HA integration's `zebra_printer.print_raw` service.
+
 ## Roadmap
 
 Planned features for future releases:
 
-- **Home Assistant Integration**: Native HA integration for printer monitoring (sensor entities for printer status, queue depth)
 - **Brother P-Touch Support**: Bitmap-based printing for Brother P-Touch label makers
 - **Print History**: Track recently printed labels with reprint functionality
 - **Label Preview**: Visual preview of labels before printing

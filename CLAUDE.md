@@ -31,17 +31,17 @@ ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
 ```
 src/labelable/
 ├── app.py              # FastAPI application factory
-├── config.py           # Pydantic settings, loads config.yaml
+├── config.py           # Pydantic settings, loads config.yaml, HA auto-discovery
 ├── queue.py            # In-memory print queue with expiry
 ├── __main__.py         # Entry point (uv run labelable)
 ├── models/             # Pydantic data models
-│   ├── printer.py      # Printer configuration
+│   ├── printer.py      # Printer configuration (TCP, serial, HA connections)
 │   ├── template.py     # Label template definitions
 │   └── job.py          # Print job representation
 ├── printers/           # Printer implementations
 │   ├── base.py         # Abstract Printer interface with cached status
-│   ├── zpl.py          # Zebra ZPL (TCP/serial)
-│   ├── epl2.py         # Zebra EPL2 (TCP/serial)
+│   ├── zpl.py          # Zebra ZPL (TCP/serial/HA)
+│   ├── epl2.py         # Zebra EPL2 (TCP/serial/HA)
 │   └── ptouch.py       # Brother P-Touch (stubbed)
 ├── templates/          # Template engine
 │   ├── engine.py       # Abstract TemplateEngine
@@ -50,6 +50,24 @@ src/labelable/
 └── api/
     ├── routes.py       # REST API endpoints
     └── ui.py           # FastUI web interface
+
+custom_components/zebra_printer/   # HA Custom Integration
+├── __init__.py         # Integration setup, platform loading
+├── manifest.json       # HACS metadata, DHCP discovery config
+├── config_flow.py      # Manual IP + DHCP discovery flows
+├── const.py            # Constants (OUI prefixes, commands)
+├── coordinator.py      # DataUpdateCoordinator for polling
+├── entity.py           # Base entity with device info
+├── binary_sensor.py    # Online, head_open, paper_out, etc.
+├── sensor.py           # Model, firmware, labels_printed, etc.
+├── services.py         # print_raw, calibrate, feed handlers
+├── services.yaml       # Service definitions for UI
+├── strings.json        # Config flow UI strings
+├── translations/       # Localization
+└── protocol/           # Printer protocol implementations
+    ├── base.py         # Abstract protocol + PrinterStatus dataclass
+    ├── zpl.py          # ZPL parsing (~HS, ~HI, ~HQOD)
+    └── epl2.py         # EPL2 parsing (UQ)
 ```
 
 ## Configuration
@@ -83,8 +101,30 @@ printers:
       interval: 60
       command: "UQ"
 
+  # HA Integration connection (uses zebra_printer integration as transport)
+  - name: ha-printer
+    type: zpl
+    connection:
+      type: ha
+      device_id: warehouse_zebra  # Device ID from HA integration
+      # ha_url: http://supervisor/core  # Default, override if needed
+      # ha_token: null  # Uses SUPERVISOR_TOKEN when running as add-on
+
 templates_dir: ./templates
 ```
+
+### HA Connection Auto-Discovery
+
+When running as a Home Assistant add-on with no printers configured, Labelable will
+automatically discover printers from the `zebra_printer` HA integration:
+
+```yaml
+# Empty printers list triggers auto-discovery
+printers: []
+```
+
+Auto-discovery queries the HA API for `binary_sensor.*_online` entities from the
+`zebra_printer` integration and creates `HAConnection` configurations automatically.
 
 ### Template Files (templates/*.yaml)
 

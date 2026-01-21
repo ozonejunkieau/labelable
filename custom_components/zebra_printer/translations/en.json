@@ -1,0 +1,104 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Zebra Printer",
+        "description": "Enter the IP address of your Zebra printer. The printer protocol (ZPL or EPL2) will be auto-detected.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      },
+      "dhcp_confirm": {
+        "title": "Discovered Zebra Printer",
+        "description": "A {model} was discovered at {host}. Do you want to add it?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to printer. Verify the IP address and that the printer is online.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This printer is already configured.",
+      "not_zebra_device": "The discovered device is not a Zebra printer.",
+      "cannot_connect": "Unable to connect to the discovered printer."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
+      },
+      "head_open": {
+        "name": "Head Open"
+      },
+      "paper_out": {
+        "name": "Paper Out"
+      },
+      "ribbon_out": {
+        "name": "Ribbon Out"
+      },
+      "paused": {
+        "name": "Paused"
+      },
+      "buffer_full": {
+        "name": "Buffer Full"
+      }
+    },
+    "sensor": {
+      "model": {
+        "name": "Model"
+      },
+      "firmware": {
+        "name": "Firmware"
+      },
+      "labels_printed": {
+        "name": "Labels Printed"
+      },
+      "head_distance": {
+        "name": "Head Distance"
+      },
+      "print_speed": {
+        "name": "Print Speed"
+      },
+      "darkness": {
+        "name": "Darkness"
+      },
+      "label_length": {
+        "name": "Label Length"
+      },
+      "print_width": {
+        "name": "Print Width"
+      },
+      "print_mode": {
+        "name": "Print Mode"
+      }
+    }
+  },
+  "services": {
+    "print_raw": {
+      "name": "Print Raw",
+      "description": "Send raw ZPL or EPL2 data to the printer.",
+      "fields": {
+        "data": {
+          "name": "Data",
+          "description": "The raw ZPL or EPL2 data to send to the printer."
+        }
+      }
+    },
+    "calibrate": {
+      "name": "Calibrate",
+      "description": "Run media calibration on the printer."
+    },
+    "feed": {
+      "name": "Feed",
+      "description": "Feed labels through the printer.",
+      "fields": {
+        "count": {
+          "name": "Count",
+          "description": "Number of labels to feed."
+        }
+      }
+    }
+  }
+}

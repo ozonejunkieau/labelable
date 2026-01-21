@@ -1,0 +1,22 @@
+{
+  "domain": "zebra_printer",
+  "name": "Zebra Printer",
+  "codeowners": ["@ozonejunkieau"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/ozonejunkieau/labelable",
+  "dhcp": [
+    {"macaddress": "00074D*"},
+    {"macaddress": "001E8F*"},
+    {"macaddress": "002368*"},
+    {"macaddress": "8CC8F4*"},
+    {"macaddress": "AC3FA4*"},
+    {"macaddress": "CC78AB*"},
+    {"macaddress": "107BEF*"},
+    {"macaddress": "24A43C*"},
+    {"macaddress": "340B40*"}
+  ],
+  "iot_class": "local_polling",
+  "requirements": [],
+  "version": "1.0.0"
+}
