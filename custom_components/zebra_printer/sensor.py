@@ -69,10 +69,10 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         key=SENSOR_HEAD_DISTANCE,
         translation_key=SENSOR_HEAD_DISTANCE,
         device_class=SensorDeviceClass.DISTANCE,
-        native_unit_of_measurement=UnitOfLength.CENTIMETERS,
+        native_unit_of_measurement=UnitOfLength.INCHES,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.head_distance_cm,
+        value_fn=lambda data: data.head_distance_inches,
         zpl_only=True,
     ),
     ZebraSensorEntityDescription(

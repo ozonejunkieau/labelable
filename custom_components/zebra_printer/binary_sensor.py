@@ -73,7 +73,7 @@ BINARY_SENSORS: tuple[ZebraBinarySensorEntityDescription, ...] = (
     ZebraBinarySensorEntityDescription(
         key=BINARY_SENSOR_PAUSED,
         translation_key=BINARY_SENSOR_PAUSED,
-        device_class=BinarySensorDeviceClass.RUNNING,
+        # No device_class - will show On/Off, translations provide "Paused"/"Not Paused"
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.paused,
     ),

@@ -8,11 +8,15 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import ZebraPrinterCoordinator
 
+# Default icon for Zebra printer entities
+ICON_PRINTER = "mdi:printer-pos"
+
 
 class ZebraPrinterEntity(CoordinatorEntity[ZebraPrinterCoordinator]):
     """Base entity for Zebra Printer."""
 
     _attr_has_entity_name = True
+    _attr_icon = ICON_PRINTER
 
     def __init__(
         self,

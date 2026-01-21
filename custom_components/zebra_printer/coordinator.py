@@ -134,3 +134,37 @@ class ZebraPrinterCoordinator(DataUpdateCoordinator[PrinterStatus]):
 
         finally:
             await protocol.disconnect()
+
+    async def async_set_print_method(self, method: str) -> bool:
+        """Set print method (direct_thermal or thermal_transfer).
+
+        Uses ZPL ^MT command:
+        - ^MTT = Thermal Transfer
+        - ^MTD = Direct Thermal
+        """
+        if self._protocol_type != PROTOCOL_ZPL:
+            _LOGGER.warning("set_print_method is only supported on ZPL printers")
+            return False
+
+        protocol = self._get_protocol()
+
+        try:
+            if not await protocol.connect():
+                return False
+
+            # ^MT command: T=thermal transfer, D=direct thermal
+            method_code = "T" if method == "thermal_transfer" else "D"
+            command = f"^XA^MT{method_code}^XZ"
+            success = await protocol.send_raw(command.encode())
+
+            # Refresh status after changing
+            if success:
+                await self.async_request_refresh()
+
+            return success
+
+        except (TimeoutError, OSError):
+            return False
+
+        finally:
+            await protocol.disconnect()

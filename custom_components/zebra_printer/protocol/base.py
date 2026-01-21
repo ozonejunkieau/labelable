@@ -30,12 +30,13 @@ class PrinterStatus:
 
     # Sensors
     labels_printed: int | None = None
-    head_distance_cm: float | None = None
+    head_distance_inches: float | None = None
     print_speed: int | None = None
     darkness: int | None = None
     label_length_mm: float | None = None
     print_width_mm: float | None = None
     print_mode: str | None = None
+    print_method: str | None = None  # "direct_thermal" or "thermal_transfer"
 
     # Raw data for debugging
     raw_status: dict[str, Any] = field(default_factory=dict)

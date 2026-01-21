@@ -1,5 +1,6 @@
 {
   "config": {
+    "flow_title": "{name}",
     "step": {
       "user": {
         "title": "Add Zebra Printer",
@@ -39,7 +40,11 @@
         "name": "Ribbon Out"
       },
       "paused": {
-        "name": "Paused"
+        "name": "Paused",
+        "state": {
+          "on": "Paused",
+          "off": "Not Paused"
+        }
       },
       "buffer_full": {
         "name": "Buffer Full"
@@ -72,6 +77,18 @@
       },
       "print_mode": {
         "name": "Print Mode"
+      },
+      "print_method": {
+        "name": "Print Method"
+      }
+    },
+    "select": {
+      "print_method": {
+        "name": "Print Method",
+        "state": {
+          "direct_thermal": "Direct Thermal",
+          "thermal_transfer": "Thermal Transfer"
+        }
       }
     }
   },

@@ -70,16 +70,22 @@ async def get_printer_info(
         await proto.disconnect()
 
 
-def is_zebra_mac(mac: str) -> bool:
-    """Check if MAC address belongs to Zebra."""
+def normalize_mac(mac: str) -> str:
+    """Normalize MAC address to uppercase colon-separated format."""
     mac_upper = mac.upper().replace("-", ":").replace(".", ":")
     # Normalize to colon-separated format
     if ":" not in mac_upper:
         # Convert AABBCCDDEEFF to AA:BB:CC:DD:EE:FF
         mac_upper = ":".join(mac_upper[i : i + 2] for i in range(0, 12, 2))
+    return mac_upper
+
+
+def is_zebra_mac(mac: str) -> bool:
+    """Check if MAC address belongs to Zebra."""
+    mac_normalized = normalize_mac(mac)
 
     for prefix in ZEBRA_OUI_PREFIXES:
-        if mac_upper.startswith(prefix):
+        if mac_normalized.startswith(prefix):
             return True
     return False
 
@@ -141,7 +147,7 @@ class ZebraPrinterConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_dhcp(self, discovery_info: Any) -> ConfigFlowResult:
         """Handle DHCP discovery."""
-        mac = discovery_info.macaddress
+        mac = normalize_mac(discovery_info.macaddress)
         host = discovery_info.ip
 
         _LOGGER.debug("DHCP discovery: host=%s, mac=%s", host, mac)
@@ -150,7 +156,7 @@ class ZebraPrinterConfigFlow(ConfigFlow, domain=DOMAIN):
         if not is_zebra_mac(mac):
             return self.async_abort(reason="not_zebra_device")
 
-        # Check for existing entries
+        # Check for existing entries (use normalized MAC as unique ID)
         await self.async_set_unique_id(mac)
         self._abort_if_unique_id_configured(updates={CONF_HOST: host})
 
@@ -162,11 +168,17 @@ class ZebraPrinterConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Get printer info
         info = await get_printer_info(host, DEFAULT_PORT, protocol)
+        model = info["model"] if info else "Zebra Printer"
 
         self._discovered_host = host
         self._discovered_mac = mac
         self._discovered_protocol = protocol
         self._discovered_info = info
+
+        # Set title for discovery notification (top line in HA UI)
+        self.context["title_placeholders"] = {
+            "name": f"{model} ({host}:{DEFAULT_PORT})"
+        }
 
         # Show confirmation dialog
         return await self.async_step_dhcp_confirm()

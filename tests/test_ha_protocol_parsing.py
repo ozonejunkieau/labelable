@@ -127,8 +127,9 @@ class TestZPLHostStatus:
 
         # Typical ~HS response (3 lines)
         # Line 1: comm,paper_out,pause,label_length,labels_remaining,buffer_full,...
-        # Line 2: func,unused,head_up,ribbon_out,thermal,mode,width,speed,...
-        response = "\x020,0,0,0800,0,0,0,0,0,0,0,0\r\n0,0,0,0,0,2,0832,4,0,0,0,0\r\n0,0,0"
+        # Line 2: func,unused,head_up,ribbon_out,thermal,mode,width,speed,unused,unused,darkness
+        # Line 3: labels_printed,unused
+        response = "\x020,0,0,0800,0,0,0,0,0,0,0,0\r\n0,0,0,0,1,2,832,4,0,0,15\r\n1234,0"
         protocol._parse_host_status(response, status)
 
         assert status.paper_out is False
@@ -138,8 +139,10 @@ class TestZPLHostStatus:
         assert status.ribbon_out is False
         assert status.print_mode == "tear_off"  # mode 2
         assert status.label_length_mm == 100.0  # 800 dots / 8
-        assert status.print_width_mm == 104.0  # 832 dots / 8
-        assert status.print_speed == 4
+        assert status.print_method == "thermal_transfer"  # field 4 = 1
+        assert status.print_speed == 4  # field 7
+        assert status.darkness == 15  # field 10
+        assert status.labels_printed == 1234  # line 3 field 0
 
     def test_parse_hs_error_status(self):
         """Test parsing ~HS response with errors."""
@@ -203,50 +206,41 @@ class TestZPLHostStatus:
         assert "hs_response" in status.raw_status
 
 
-class TestZPLOdometer:
-    """Tests for ZPL ~HQOD response parsing."""
+class TestZPLLine3Parsing:
+    """Tests for ZPL ~HS line 3 parsing (labels printed)."""
 
-    def test_parse_odometer_with_label_count(self):
-        """Test parsing odometer with label count."""
+    def test_parse_hs_line3_labels_printed(self):
+        """Test parsing labels printed from line 3."""
         protocol = ZPLProtocol("192.168.1.100")
         status = PrinterStatus()
 
-        response = "LABEL: 12345\r\nHEAD DISTANCE: 500"
-        protocol._parse_odometer(response, status)
+        # 3-line response with label count in line 3
+        response = "\x020,0,0,0800,0,0,0,0,0,0,0,0\r\n0,0,0,0,0,2,832,4\r\n5678,0"
+        protocol._parse_host_status(response, status)
 
-        assert status.labels_printed == 12345
-        assert status.head_distance_cm == 1270.0  # 500 * 2.54
+        assert status.labels_printed == 5678
 
-    def test_parse_odometer_labels_variant(self):
-        """Test parsing 'LABELS' (plural) in response."""
+    def test_parse_hs_direct_thermal_mode(self):
+        """Test parsing direct thermal mode from line 2 field 4."""
         protocol = ZPLProtocol("192.168.1.100")
         status = PrinterStatus()
 
-        response = "LABELS 9999"
-        protocol._parse_odometer(response, status)
+        # field 4 = 0 means direct thermal
+        response = "\x020,0,0,0800,0,0,0,0,0,0,0,0\r\n0,0,0,0,0,2,832,4\r\n0,0"
+        protocol._parse_host_status(response, status)
 
-        assert status.labels_printed == 9999
+        assert status.print_method == "direct_thermal"
 
-    def test_parse_odometer_with_commas(self):
-        """Test parsing head distance with commas."""
+    def test_parse_hs_thermal_transfer_mode(self):
+        """Test parsing thermal transfer mode from line 2 field 4."""
         protocol = ZPLProtocol("192.168.1.100")
         status = PrinterStatus()
 
-        response = "LABEL: 100\r\nTOTAL DISTANCE: 1,234,567"
-        protocol._parse_odometer(response, status)
+        # field 4 = 1 means thermal transfer
+        response = "\x020,0,0,0800,0,0,0,0,0,0,0,0\r\n0,0,0,0,1,2,832,4\r\n0,0"
+        protocol._parse_host_status(response, status)
 
-        assert status.labels_printed == 100
-        assert status.head_distance_cm == 3135800.18  # 1234567 * 2.54
-
-    def test_parse_odometer_empty_response(self):
-        """Test parsing empty odometer response."""
-        protocol = ZPLProtocol("192.168.1.100")
-        status = PrinterStatus()
-
-        protocol._parse_odometer("", status)
-
-        assert status.labels_printed is None
-        assert status.head_distance_cm is None
+        assert status.print_method == "thermal_transfer"
 
 
 class TestZPLCommands:
@@ -282,6 +276,18 @@ class TestEPL2StatusParsing:
         assert status.model == "UKQ1935HMU"
         assert status.firmware == "V4.70"
         assert status.print_speed == 8
+
+    def test_parse_uq_single_line_no_comma(self):
+        """Test parsing single-line UQ response without commas."""
+        protocol = EPL2Protocol("192.168.1.100")
+        status = PrinterStatus()
+
+        # User reported this format: "UKQ1935HLU V4.42"
+        response = "UKQ1935HLU V4.42"
+        protocol._parse_uq_response(response, status)
+
+        assert status.model == "UKQ1935HLU"
+        assert status.firmware == "V4.42"
 
     def test_parse_uq_multi_line(self):
         """Test parsing multi-line UQ response."""
@@ -366,7 +372,7 @@ class TestPrinterStatus:
         assert status.paused is None
         assert status.buffer_full is None
         assert status.labels_printed is None
-        assert status.head_distance_cm is None
+        assert status.head_distance_inches is None
         assert status.print_speed is None
         assert status.darkness is None
         assert status.label_length_mm is None

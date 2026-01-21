@@ -17,7 +17,6 @@ from ..const import (
     ZPL_FEED_LABEL,
     ZPL_HOST_IDENTIFICATION,
     ZPL_HOST_STATUS,
-    ZPL_ODOMETER,
 )
 from .base import PrinterProtocol, PrinterStatus
 
@@ -31,6 +30,10 @@ PRINT_MODES = {
     "5": PRINT_MODE_RFID,
     "6": PRINT_MODE_APPLICATOR,
 }
+
+# Print method (thermal transfer vs direct thermal)
+PRINT_METHOD_DIRECT = "direct_thermal"
+PRINT_METHOD_TRANSFER = "thermal_transfer"
 
 
 class ZPLProtocol(PrinterProtocol):
@@ -50,13 +53,9 @@ class ZPLProtocol(PrinterProtocol):
         hi_response = await self.send_command(ZPL_HOST_IDENTIFICATION)
         self._parse_host_identification(hi_response, status)
 
-        # Get host status (~HS)
+        # Get host status (~HS) - contains most status info including label count
         hs_response = await self.send_command(ZPL_HOST_STATUS)
         self._parse_host_status(hs_response, status)
-
-        # Get odometer (~HQOD)
-        od_response = await self.send_command(ZPL_ODOMETER)
-        self._parse_odometer(od_response, status)
 
         return status
 
@@ -85,13 +84,13 @@ class ZPLProtocol(PrinterProtocol):
     def _parse_host_status(self, response: str, status: PrinterStatus) -> None:
         """Parse ~HS response for status flags and configuration.
 
-        Response is 3 lines of comma-separated values:
+        Response is 3 lines of comma-separated values (each wrapped in STX/ETX):
         Line 1: communication,paper_out,pause,label_length,labels_remaining,
                 buffer_full,comm_diag_mode,partial_format,unused,corrupt_ram,
                 under_temp,over_temp
         Line 2: function_settings,unused,head_up,ribbon_out,thermal_transfer,
-                print_mode,head_element_count,speed,unused...
-        Line 3: ZPL_mode,pw_protected,pw_level,...
+                print_mode,print_width_dots,label_home,unused,unused,unused
+        Line 3: labels_printed,unused (or password related on some models)
         """
         if not response:
             return
@@ -110,6 +109,10 @@ class ZPLProtocol(PrinterProtocol):
 
         # Parse line 2 (configuration)
         self._parse_hs_line2(lines[1], status)
+
+        # Parse line 3 (labels printed counter on many models)
+        if len(lines) >= 3:
+            self._parse_hs_line3(lines[2], status)
 
     def _parse_hs_line1(self, line: str, status: PrinterStatus) -> None:
         """Parse first line of ~HS response."""
@@ -134,62 +137,61 @@ class ZPLProtocol(PrinterProtocol):
             status.buffer_full = parts[5].strip() == "1"
 
     def _parse_hs_line2(self, line: str, status: PrinterStatus) -> None:
-        """Parse second line of ~HS response."""
+        """Parse second line of ~HS response.
+
+        Format: function_settings,unused,head_up,ribbon_out,thermal_transfer,
+                print_mode,print_width_dots,label_home,unused,unused,darkness
+        Example: 129,0,0,0,1,2,6,0,00000000,1,000
+        """
+        # Remove STX/ETX if present
+        line = line.replace("\x02", "").replace("\x03", "")
         parts = line.split(",")
 
         if len(parts) >= 3:
             status.head_open = parts[2].strip() == "1"
         if len(parts) >= 4:
             status.ribbon_out = parts[3].strip() == "1"
+        if len(parts) >= 5:
+            # Thermal transfer mode: 0=direct thermal, 1=thermal transfer
+            tt_mode = parts[4].strip()
+            status.print_method = PRINT_METHOD_TRANSFER if tt_mode == "1" else PRINT_METHOD_DIRECT
         if len(parts) >= 6:
             mode_code = parts[5].strip()
             status.print_mode = PRINT_MODES.get(mode_code, PRINT_MODE_UNKNOWN)
-        if len(parts) >= 7:
-            # Print width in dots
-            try:
-                dots = int(parts[6])
-                status.print_width_mm = round(dots / 8.0, 1)
-            except (ValueError, TypeError):
-                pass
         if len(parts) >= 8:
-            # Print speed
+            # Print speed (field 7)
             try:
-                status.print_speed = int(parts[7])
+                speed = int(parts[7])
+                if speed > 0:  # Only set if non-zero
+                    status.print_speed = speed
+            except (ValueError, TypeError):
+                pass
+        if len(parts) >= 11:
+            # Darkness is often in field 10 (varies by model)
+            try:
+                darkness = int(parts[10])
+                if 0 <= darkness <= 30:  # Valid darkness range
+                    status.darkness = darkness
             except (ValueError, TypeError):
                 pass
 
-    def _parse_odometer(self, response: str, status: PrinterStatus) -> None:
-        """Parse ~HQOD response for odometer data.
+    def _parse_hs_line3(self, line: str, status: PrinterStatus) -> None:
+        """Parse third line of ~HS response.
 
-        Response format varies by model but typically includes:
-        - LABEL PRINTED counter
-        - HEAD DISTANCE (total travel in inches)
+        On many models, this contains the label counter:
+        Format: labels_printed,unused
+        Example: 1234,0
         """
-        if not response:
-            return
+        # Remove STX/ETX if present
+        line = line.replace("\x02", "").replace("\x03", "")
+        parts = line.split(",")
 
-        status.raw_status["od_response"] = response
-
-        # Look for label count
-        label_match = re.search(r"(?:LABEL|LABELS?)[\s:]+(\d+)", response, re.IGNORECASE)
-        if label_match:
+        if len(parts) >= 1:
             try:
-                status.labels_printed = int(label_match.group(1))
-            except ValueError:
-                pass
-
-        # Look for head distance (in inches, convert to cm)
-        # Format: "xxx,xxx,xxx" inches or "HEAD DISTANCE: xxx"
-        head_match = re.search(
-            r"(?:HEAD|TOTAL)[\s:]*(?:DISTANCE)?[\s:]*(\d+(?:,\d+)*)", response, re.IGNORECASE
-        )
-        if head_match:
-            try:
-                # Remove commas and convert
-                inches_str = head_match.group(1).replace(",", "")
-                inches = float(inches_str)
-                status.head_distance_cm = round(inches * 2.54, 2)
-            except ValueError:
+                labels = int(parts[0].strip())
+                if labels >= 0:
+                    status.labels_printed = labels
+            except (ValueError, TypeError):
                 pass
 
     def get_calibrate_command(self) -> str:

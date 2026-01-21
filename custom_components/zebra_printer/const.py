@@ -52,6 +52,7 @@ SENSOR_DARKNESS = "darkness"
 SENSOR_LABEL_LENGTH = "label_length"
 SENSOR_PRINT_WIDTH = "print_width"
 SENSOR_PRINT_MODE = "print_mode"
+SENSOR_PRINT_METHOD = "print_method"
 
 # Binary sensor keys
 BINARY_SENSOR_ONLINE = "online"
