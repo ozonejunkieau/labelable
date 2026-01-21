@@ -232,6 +232,146 @@ class TestZPLLine2Parsing:
         assert status.print_method == "thermal_transfer"
 
 
+class TestZPLExtendedStatus:
+    """Tests for ZPL ~HQES extended status parsing."""
+
+    def test_parse_extended_status_no_errors(self):
+        """Test parsing ~HQES with no errors or warnings."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = """
+  PRINTER STATUS
+     ERRORS:         0 00000000 00000000
+     WARNINGS:       0 00000000 00000000
+"""
+        protocol._parse_extended_status(response, status)
+
+        assert status.has_error is False
+        assert status.error_flags == "None"
+        assert status.warning_flags == "None"
+
+    def test_parse_extended_status_media_out(self):
+        """Test parsing ~HQES with media out error (bit 0)."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        # 00000001 = Media Out
+        response = """
+  PRINTER STATUS
+     ERRORS:         1 00000000 00000001
+     WARNINGS:       0 00000000 00000000
+"""
+        protocol._parse_extended_status(response, status)
+
+        assert status.has_error is True
+        assert status.error_flags == "Media Out"
+        assert status.warning_flags == "None"
+
+    def test_parse_extended_status_multiple_errors(self):
+        """Test parsing ~HQES with multiple errors."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        # 00000007 = Media Out (1) + Ribbon Out (2) + Head Open (4)
+        response = """
+  PRINTER STATUS
+     ERRORS:         1 00000000 00000007
+     WARNINGS:       0 00000000 00000000
+"""
+        protocol._parse_extended_status(response, status)
+
+        assert status.has_error is True
+        assert "Media Out" in status.error_flags
+        assert "Ribbon Out" in status.error_flags
+        assert "Head Open" in status.error_flags
+
+    def test_parse_extended_status_warnings(self):
+        """Test parsing ~HQES with warnings."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        # 00000006 = Clean Printhead (2) + Replace Printhead (4)
+        response = """
+  PRINTER STATUS
+     ERRORS:         0 00000000 00000000
+     WARNINGS:       1 00000000 00000006
+"""
+        protocol._parse_extended_status(response, status)
+
+        assert status.has_error is False
+        assert status.error_flags == "None"
+        assert "Clean Printhead" in status.warning_flags
+        assert "Replace Printhead" in status.warning_flags
+
+    def test_parse_extended_status_printhead_over_temp(self):
+        """Test parsing ~HQES with printhead over temperature (nibble 2 bit 0)."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        # 00000010 = Printhead Over Temperature
+        response = """
+  PRINTER STATUS
+     ERRORS:         1 00000000 00000010
+     WARNINGS:       0 00000000 00000000
+"""
+        protocol._parse_extended_status(response, status)
+
+        assert status.has_error is True
+        assert status.error_flags == "Printhead Over Temperature"
+
+    def test_parse_extended_status_empty(self):
+        """Test parsing empty ~HQES response."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        protocol._parse_extended_status("", status)
+
+        # Default values should remain
+        assert status.has_error is False
+        assert status.error_flags == "None"
+        assert status.warning_flags == "None"
+
+    def test_parse_extended_status_calibrate_warning(self):
+        """Test parsing ~HQES with need to calibrate media warning."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        # 00000001 = Need to Calibrate Media
+        response = """
+  PRINTER STATUS
+     ERRORS:         0 00000000 00000000
+     WARNINGS:       1 00000000 00000001
+"""
+        protocol._parse_extended_status(response, status)
+
+        assert status.has_error is False
+        assert status.warning_flags == "Need to Calibrate Media"
+
+    def test_parse_extended_status_zebra_documentation_example(self):
+        """Test parsing ~HQES with example from Zebra documentation.
+
+        From Zebra docs:
+        ERRORS: 1 00000000 00000005 = Head Open (4) + Media Out (1)
+        WARNINGS: 1 00000000 00000002 = Clean Printhead (2)
+        """
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = """PRINTER STATUS
+ERRORS:         1 00000000 00000005
+WARNINGS:       1 00000000 00000002
+"""
+        protocol._parse_extended_status(response, status)
+
+        assert status.has_error is True
+        # Error 5 = Head Open (4) + Media Out (1)
+        assert "Head Open" in status.error_flags
+        assert "Media Out" in status.error_flags
+        # Warning 2 = Clean Printhead
+        assert status.warning_flags == "Clean Printhead"
+
+
 class TestZPLOdometer:
     """Tests for ZPL ~HQOD odometer parsing."""
 
@@ -412,6 +552,9 @@ class TestPrinterStatus:
         assert status.label_length_mm is None
         assert status.print_width_mm is None
         assert status.print_mode is None
+        assert status.has_error is False
+        assert status.error_flags == "None"
+        assert status.warning_flags == "None"
         assert status.raw_status == {}
 
     def test_online_status(self):

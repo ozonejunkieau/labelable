@@ -38,6 +38,11 @@ class PrinterStatus:
     print_mode: str | None = None
     print_method: str | None = None  # "direct_thermal" or "thermal_transfer"
 
+    # Error/Warning status from ~HQES
+    has_error: bool = False  # True if any error is present
+    error_flags: str = "None"  # Comma-separated error descriptions or "None"
+    warning_flags: str = "None"  # Comma-separated warning descriptions or "None"
+
     # Capabilities (from ~HI response)
     thermal_transfer_capable: bool = False  # True if printer supports thermal transfer
 

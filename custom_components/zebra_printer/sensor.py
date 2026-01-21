@@ -18,6 +18,7 @@ from .const import (
     DOMAIN,
     PROTOCOL_ZPL,
     SENSOR_DARKNESS,
+    SENSOR_ERRORS,
     SENSOR_FIRMWARE,
     SENSOR_HEAD_DISTANCE,
     SENSOR_LABEL_LENGTH,
@@ -25,6 +26,7 @@ from .const import (
     SENSOR_PRINT_MODE,
     SENSOR_PRINT_SPEED,
     SENSOR_PRINT_WIDTH,
+    SENSOR_WARNINGS,
 )
 from .coordinator import ZebraPrinterCoordinator
 from .entity import ZebraPrinterEntity
@@ -116,6 +118,20 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         ],
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.print_mode,
+        zpl_only=True,
+    ),
+    ZebraSensorEntityDescription(
+        key=SENSOR_ERRORS,
+        translation_key=SENSOR_ERRORS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.error_flags,
+        zpl_only=True,
+    ),
+    ZebraSensorEntityDescription(
+        key=SENSOR_WARNINGS,
+        translation_key=SENSOR_WARNINGS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.warning_flags,
         zpl_only=True,
     ),
 )

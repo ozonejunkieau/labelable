@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from ..const import (
+    ERROR_FLAGS,
     PRINT_MODE_APPLICATOR,
     PRINT_MODE_CUTTER,
     PRINT_MODE_DELAYED_CUT,
@@ -13,7 +14,9 @@ from ..const import (
     PRINT_MODE_RFID,
     PRINT_MODE_TEAR,
     PRINT_MODE_UNKNOWN,
+    WARNING_FLAGS,
     ZPL_CALIBRATE,
+    ZPL_EXTENDED_STATUS,
     ZPL_FEED_LABEL,
     ZPL_HOST_IDENTIFICATION,
     ZPL_HOST_STATUS,
@@ -61,6 +64,10 @@ class ZPLProtocol(PrinterProtocol):
         # Get odometer (~HQOD) - head distance in inches
         od_response = await self.send_command(ZPL_ODOMETER)
         self._parse_odometer(od_response, status)
+
+        # Get extended status (~HQES) - error and warning flags
+        es_response = await self.send_command(ZPL_EXTENDED_STATUS)
+        self._parse_extended_status(es_response, status)
 
         return status
 
@@ -224,6 +231,61 @@ class ZPLProtocol(PrinterProtocol):
                 status.head_distance_cm = value
             except (ValueError, TypeError):
                 pass
+
+    def _parse_extended_status(self, response: str, status: PrinterStatus) -> None:
+        """Parse ~HQES response for error and warning flags.
+
+        Response format:
+          PRINTER STATUS
+             ERRORS:         0 00000000 00000000
+             WARNINGS:       0 00000000 00000000
+
+        First number (0 or 1) indicates if any error/warning is present.
+        Second group is always 00000000 (nibbles 16-9).
+        Third group is the bitmask (nibbles 8-1) as 8 hex digits.
+        """
+        if not response:
+            return
+
+        status.raw_status["es_response"] = response
+
+        # Parse ERRORS line
+        error_match = re.search(
+            r"ERRORS:\s*(\d)\s+([0-9A-Fa-f]{8})\s+([0-9A-Fa-f]{8})", response
+        )
+        if error_match:
+            has_error = error_match.group(1) == "1"
+            # group1 is nibbles 8-1 (rightmost 8 hex digits)
+            error_bitmask = int(error_match.group(3), 16)
+
+            status.has_error = has_error
+
+            if has_error and error_bitmask > 0:
+                errors = []
+                for bit_value, description in ERROR_FLAGS.items():
+                    if error_bitmask & bit_value:
+                        errors.append(description)
+                status.error_flags = ", ".join(errors) if errors else "None"
+            else:
+                status.error_flags = "None"
+
+        # Parse WARNINGS line
+        warning_match = re.search(
+            r"WARNINGS:\s*(\d)\s+([0-9A-Fa-f]{8})\s+([0-9A-Fa-f]{8})", response
+        )
+        if warning_match:
+            has_warning = warning_match.group(1) == "1"
+            # group1 is nibbles 8-1 (rightmost 8 hex digits)
+            warning_bitmask = int(warning_match.group(3), 16)
+
+            if has_warning and warning_bitmask > 0:
+                warnings = []
+                for bit_value, description in WARNING_FLAGS.items():
+                    if warning_bitmask & bit_value:
+                        warnings.append(description)
+                status.warning_flags = ", ".join(warnings) if warnings else "None"
+            else:
+                status.warning_flags = "None"
 
     def get_calibrate_command(self) -> str:
         """Get ZPL calibration command."""

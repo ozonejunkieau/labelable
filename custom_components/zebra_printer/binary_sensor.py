@@ -15,6 +15,7 @@ from homeassistant.const import EntityCategory
 
 from .const import (
     BINARY_SENSOR_BUFFER_FULL,
+    BINARY_SENSOR_HAS_ERROR,
     BINARY_SENSOR_HEAD_OPEN,
     BINARY_SENSOR_ONLINE,
     BINARY_SENSOR_PAPER_OUT,
@@ -83,6 +84,14 @@ BINARY_SENSORS: tuple[ZebraBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.buffer_full,
+        zpl_only=True,
+    ),
+    ZebraBinarySensorEntityDescription(
+        key=BINARY_SENSOR_HAS_ERROR,
+        translation_key=BINARY_SENSOR_HAS_ERROR,
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.has_error,
         zpl_only=True,
     ),
 )

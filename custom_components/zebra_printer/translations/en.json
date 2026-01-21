@@ -48,6 +48,9 @@
       },
       "buffer_full": {
         "name": "Buffer Full"
+      },
+      "has_error": {
+        "name": "Error"
       }
     },
     "sensor": {
@@ -77,6 +80,12 @@
       },
       "print_method": {
         "name": "Print Method"
+      },
+      "errors": {
+        "name": "Errors"
+      },
+      "warnings": {
+        "name": "Warnings"
       }
     },
     "select": {
