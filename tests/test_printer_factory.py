@@ -174,8 +174,8 @@ class TestPrinterQuantityHandling:
         import re
 
         # EPL2 uses P command with quantity
-        data_p1 = b"N\nA50,50,0,1,1,1,N,\"Test\"\nP1\n"
-        data_p5 = b"N\nA50,50,0,1,1,1,N,\"Test\"\nP5\n"
+        data_p1 = b'N\nA50,50,0,1,1,1,N,"Test"\nP1\n'
+        data_p5 = b'N\nA50,50,0,1,1,1,N,"Test"\nP5\n'
 
         match_p1 = re.search(rb"P(\d+)", data_p1)
         match_p5 = re.search(rb"P(\d+)", data_p5)

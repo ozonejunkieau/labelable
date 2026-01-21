@@ -333,9 +333,11 @@ class TestPrinterHATransport:
         # Set up mock session with error response
         mock_response = AsyncMock()
         mock_response.status = 500
+
         # text() is a coroutine that returns a string
         async def mock_text():
             return "Internal Server Error"
+
         mock_response.text = mock_text
 
         # Create async context manager mock properly
@@ -425,7 +427,7 @@ class TestPrinterHATransport:
         printer._ha_url = "http://supervisor/core"
         printer._connected = True
 
-        await printer._send_via_ha(b"N\nA50,50,0,1,1,1,N,\"Hello\"\nP1\n")
+        await printer._send_via_ha(b'N\nA50,50,0,1,1,1,N,"Hello"\nP1\n')
 
         mock_session.post.assert_called_once()
         call_args = mock_session.post.call_args

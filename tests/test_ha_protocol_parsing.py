@@ -28,19 +28,13 @@ def _load_module_from_file(name: str, filepath: Path):
 _custom_components = Path(__file__).parent.parent / "custom_components" / "zebra_printer"
 
 # Load const module first (has no dependencies)
-_const = _load_module_from_file(
-    "zebra_printer.const",
-    _custom_components / "const.py"
-)
+_const = _load_module_from_file("zebra_printer.const", _custom_components / "const.py")
 
 # Patch the const import in protocol modules
 sys.modules["..const"] = _const
 
 # Load base protocol
-_base = _load_module_from_file(
-    "zebra_printer.protocol.base",
-    _custom_components / "protocol" / "base.py"
-)
+_base = _load_module_from_file("zebra_printer.protocol.base", _custom_components / "protocol" / "base.py")
 PrinterStatus = _base.PrinterStatus
 
 # Now we need to make the relative import work for zpl.py and epl2.py
@@ -55,16 +49,10 @@ protocol_pkg.base = _base
 sys.modules["zebra_printer.protocol"] = protocol_pkg
 
 # Now load zpl and epl2 with the mocked structure
-_zpl = _load_module_from_file(
-    "zebra_printer.protocol.zpl",
-    _custom_components / "protocol" / "zpl.py"
-)
+_zpl = _load_module_from_file("zebra_printer.protocol.zpl", _custom_components / "protocol" / "zpl.py")
 ZPLProtocol = _zpl.ZPLProtocol
 
-_epl2 = _load_module_from_file(
-    "zebra_printer.protocol.epl2",
-    _custom_components / "protocol" / "epl2.py"
-)
+_epl2 = _load_module_from_file("zebra_printer.protocol.epl2", _custom_components / "protocol" / "epl2.py")
 EPL2Protocol = _epl2.EPL2Protocol
 
 
@@ -381,12 +369,12 @@ class TestZPLOdometer:
         status = PrinterStatus()
 
         # Real ~HQOD response format
-        response = '''
+        response = """
   PRINT METERS
      TOTAL NONRESETTABLE:              69 "
      USER RESETTABLE CNTR1:            69 "
      USER RESETTABLE CNTR2:            69 "
-'''
+"""
         protocol._parse_odometer(response, status)
 
         # 69 inches * 2.54 = 175.26 cm, rounded to 175.3
@@ -397,12 +385,12 @@ class TestZPLOdometer:
         protocol = ZPLProtocol("192.168.1.100")
         status = PrinterStatus()
 
-        response = '''
+        response = """
   PRINT METERS
      TOTAL NONRESETTABLE:           21744 cm
      USER RESETTABLE CNTR1:            24 cm
      USER RESETTABLE CNTR2:         21744 cm
-'''
+"""
         protocol._parse_odometer(response, status)
 
         assert status.head_distance_cm == 21744.0

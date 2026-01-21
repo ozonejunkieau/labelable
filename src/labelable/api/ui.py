@@ -705,9 +705,7 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
             ]
             # Show fixed quantity if set
             if template.quantity is not None:
-                form_components.append(
-                    c.Paragraph(text=f"Quantity: {template.quantity} (fixed)")
-                )
+                form_components.append(c.Paragraph(text=f"Quantity: {template.quantity} (fixed)"))
             form_components.append(
                 c.ModelForm(
                     model=_create_form_model(template, None),
@@ -721,9 +719,7 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
             ]
             # Show fixed quantity if set
             if template.quantity is not None:
-                form_components.append(
-                    c.Paragraph(text=f"Quantity: {template.quantity} (fixed)")
-                )
+                form_components.append(c.Paragraph(text=f"Quantity: {template.quantity} (fixed)"))
             form_components.append(
                 c.ModelForm(
                     model=_create_form_model(template, compatible_printers),

@@ -169,7 +169,7 @@ class TestEPL2PrinterQuantity:
         await printer.connect()
 
         # Template with P3 (print 3 copies)
-        data = b"N\nA50,50,0,1,1,1,N,\"Test\"\nP3\n"
+        data = b'N\nA50,50,0,1,1,1,N,"Test"\nP3\n'
         await printer.print_with_quantity(data, 3)
 
         # Should only print once - P3 handles quantity
@@ -187,7 +187,7 @@ class TestEPL2PrinterQuantity:
         await printer.connect()
 
         # Template with P1 (single copy per command)
-        data = b"N\nA50,50,0,1,1,1,N,\"Test\"\nP1\n"
+        data = b'N\nA50,50,0,1,1,1,N,"Test"\nP1\n'
         await printer.print_with_quantity(data, 3)
 
         # Should loop 3 times since P1 means single copy
@@ -204,7 +204,7 @@ class TestEPL2PrinterQuantity:
         await printer.connect()
 
         # Template without P command (unusual but possible)
-        data = b"N\nA50,50,0,1,1,1,N,\"Test\"\n"
+        data = b'N\nA50,50,0,1,1,1,N,"Test"\n'
         await printer.print_with_quantity(data, 2)
 
         # Should loop 2 times
@@ -221,7 +221,7 @@ class TestEPL2PrinterQuantity:
         await printer.connect()
 
         # Template with P10 (print 10 copies)
-        data = b"N\nA50,50,0,1,1,1,N,\"Test\"\nP10\n"
+        data = b'N\nA50,50,0,1,1,1,N,"Test"\nP10\n'
         await printer.print_with_quantity(data, 10)
 
         # Should only print once
