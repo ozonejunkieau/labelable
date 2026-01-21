@@ -17,6 +17,7 @@ from ..const import (
     ZPL_FEED_LABEL,
     ZPL_HOST_IDENTIFICATION,
     ZPL_HOST_STATUS,
+    ZPL_ODOMETER,
 )
 from .base import PrinterProtocol, PrinterStatus
 
@@ -53,17 +54,26 @@ class ZPLProtocol(PrinterProtocol):
         hi_response = await self.send_command(ZPL_HOST_IDENTIFICATION)
         self._parse_host_identification(hi_response, status)
 
-        # Get host status (~HS) - contains most status info including label count
+        # Get host status (~HS) - contains most status info
         hs_response = await self.send_command(ZPL_HOST_STATUS)
         self._parse_host_status(hs_response, status)
+
+        # Get odometer (~HQOD) - head distance in inches
+        od_response = await self.send_command(ZPL_ODOMETER)
+        self._parse_odometer(od_response, status)
 
         return status
 
     def _parse_host_identification(self, response: str, status: PrinterStatus) -> None:
-        """Parse ~HI response for model and firmware.
+        """Parse ~HI response for model, firmware, and capabilities.
 
-        Format: STX <model>,<firmware>,<dpi>,<memory> ETX
-        Example: \x02ZTC ZD420-300dpi ZPL,V84.20.21Z,300,262144\x03
+        Format: STX <model>,<firmware>,<dpi>,<print_method_capability> ETX
+        Example: \x02GX430t-300dpi,V56.17.17Z,12,2104KB\x03
+        Or: \x02GX420d,V1.0,1234,D\x03
+
+        The last field indicates print method capability:
+        - D = Direct thermal only
+        - T = Thermal transfer capable
         """
         if not response:
             return
@@ -81,6 +91,19 @@ class ZPLProtocol(PrinterProtocol):
         if len(parts) >= 2:
             status.firmware = parts[1].strip()
 
+        # Check last field for print method capability (D or T)
+        if len(parts) >= 4:
+            last_field = parts[-1].strip().upper()
+            # Could be just "D" or "T", or might be embedded in memory string
+            if last_field == "T" or last_field.endswith("T"):
+                status.thermal_transfer_capable = True
+            elif last_field == "D" or last_field.endswith("D"):
+                status.thermal_transfer_capable = False
+            else:
+                # If we can't determine from ~HI, check if print_method is thermal_transfer
+                # (will be set later from ~HS parsing)
+                pass
+
     def _parse_host_status(self, response: str, status: PrinterStatus) -> None:
         """Parse ~HS response for status flags and configuration.
 
@@ -89,8 +112,8 @@ class ZPLProtocol(PrinterProtocol):
                 buffer_full,comm_diag_mode,partial_format,unused,corrupt_ram,
                 under_temp,over_temp
         Line 2: function_settings,unused,head_up,ribbon_out,thermal_transfer,
-                print_mode,print_width_dots,label_home,unused,unused,unused
-        Line 3: labels_printed,unused (or password related on some models)
+                print_mode,print_width_dots,label_home,unused,unused,darkness
+        Line 3: varies by model (not used)
         """
         if not response:
             return
@@ -109,10 +132,6 @@ class ZPLProtocol(PrinterProtocol):
 
         # Parse line 2 (configuration)
         self._parse_hs_line2(lines[1], status)
-
-        # Parse line 3 (labels printed counter on many models)
-        if len(lines) >= 3:
-            self._parse_hs_line3(lines[2], status)
 
     def _parse_hs_line1(self, line: str, status: PrinterStatus) -> None:
         """Parse first line of ~HS response."""
@@ -175,22 +194,34 @@ class ZPLProtocol(PrinterProtocol):
             except (ValueError, TypeError):
                 pass
 
-    def _parse_hs_line3(self, line: str, status: PrinterStatus) -> None:
-        """Parse third line of ~HS response.
+    def _parse_odometer(self, response: str, status: PrinterStatus) -> None:
+        """Parse ~HQOD response for head distance.
 
-        On many models, this contains the label counter:
-        Format: labels_printed,unused
-        Example: 1234,0
+        Response format (human readable):
+          PRINT METERS
+             TOTAL NONRESETTABLE:              69 "
+             USER RESETTABLE CNTR1:            69 "
+             USER RESETTABLE CNTR2:            69 "
+
+        Units can be inches (") or centimeters (cm) depending on printer config.
+        We convert to cm for consistency in HA.
         """
-        # Remove STX/ETX if present
-        line = line.replace("\x02", "").replace("\x03", "")
-        parts = line.split(",")
+        if not response:
+            return
 
-        if len(parts) >= 1:
+        status.raw_status["od_response"] = response
+
+        # Look for TOTAL NONRESETTABLE line and extract number + unit
+        # Match number followed by " (inches) or cm
+        match = re.search(r"TOTAL\s+NONRESETTABLE:\s*(\d+)\s*(cm|\")", response)
+        if match:
             try:
-                labels = int(parts[0].strip())
-                if labels >= 0:
-                    status.labels_printed = labels
+                value = float(match.group(1))
+                unit = match.group(2)
+                # Convert inches to cm if needed (1 inch = 2.54 cm)
+                if unit == '"':
+                    value = round(value * 2.54, 1)
+                status.head_distance_cm = value
             except (ValueError, TypeError):
                 pass
 

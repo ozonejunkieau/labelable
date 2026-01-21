@@ -29,14 +29,17 @@ class PrinterStatus:
     buffer_full: bool | None = None
 
     # Sensors
-    labels_printed: int | None = None
-    head_distance_inches: float | None = None
+    labels_printed: int | None = None  # Not available on most models
+    head_distance_cm: float | None = None
     print_speed: int | None = None
     darkness: int | None = None
     label_length_mm: float | None = None
     print_width_mm: float | None = None
     print_mode: str | None = None
     print_method: str | None = None  # "direct_thermal" or "thermal_transfer"
+
+    # Capabilities (from ~HI response)
+    thermal_transfer_capable: bool = False  # True if printer supports thermal transfer
 
     # Raw data for debugging
     raw_status: dict[str, Any] = field(default_factory=dict)

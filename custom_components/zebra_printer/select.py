@@ -31,9 +31,15 @@ async def async_setup_entry(
     """Set up Zebra Printer select entities."""
     coordinator: ZebraPrinterCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    # Only add print method select for ZPL printers
+    # Only add print method select for ZPL printers that support thermal transfer
+    # The capability is determined from ~HI response (last field = T for transfer capable)
     if coordinator.protocol_type == PROTOCOL_ZPL:
-        async_add_entities([ZebraPrintMethodSelect(coordinator)])
+        # Check if printer is thermal transfer capable
+        if (
+            coordinator.data is not None
+            and coordinator.data.thermal_transfer_capable
+        ):
+            async_add_entities([ZebraPrintMethodSelect(coordinator)])
 
 
 class ZebraPrintMethodSelect(ZebraPrinterEntity, SelectEntity):

@@ -142,7 +142,7 @@ class TestZPLHostStatus:
         assert status.print_method == "thermal_transfer"  # field 4 = 1
         assert status.print_speed == 4  # field 7
         assert status.darkness == 15  # field 10
-        assert status.labels_printed == 1234  # line 3 field 0
+        # Note: labels_printed comes from ~HQOD, not ~HS line 3
 
     def test_parse_hs_error_status(self):
         """Test parsing ~HS response with errors."""
@@ -206,19 +206,8 @@ class TestZPLHostStatus:
         assert "hs_response" in status.raw_status
 
 
-class TestZPLLine3Parsing:
-    """Tests for ZPL ~HS line 3 parsing (labels printed)."""
-
-    def test_parse_hs_line3_labels_printed(self):
-        """Test parsing labels printed from line 3."""
-        protocol = ZPLProtocol("192.168.1.100")
-        status = PrinterStatus()
-
-        # 3-line response with label count in line 3
-        response = "\x020,0,0,0800,0,0,0,0,0,0,0,0\r\n0,0,0,0,0,2,832,4\r\n5678,0"
-        protocol._parse_host_status(response, status)
-
-        assert status.labels_printed == 5678
+class TestZPLLine2Parsing:
+    """Tests for ZPL ~HS line 2 parsing (print method)."""
 
     def test_parse_hs_direct_thermal_mode(self):
         """Test parsing direct thermal mode from line 2 field 4."""
@@ -241,6 +230,51 @@ class TestZPLLine3Parsing:
         protocol._parse_host_status(response, status)
 
         assert status.print_method == "thermal_transfer"
+
+
+class TestZPLOdometer:
+    """Tests for ZPL ~HQOD odometer parsing."""
+
+    def test_parse_odometer_inches(self):
+        """Test parsing odometer in inches (converts to cm)."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        # Real ~HQOD response format
+        response = '''
+  PRINT METERS
+     TOTAL NONRESETTABLE:              69 "
+     USER RESETTABLE CNTR1:            69 "
+     USER RESETTABLE CNTR2:            69 "
+'''
+        protocol._parse_odometer(response, status)
+
+        # 69 inches * 2.54 = 175.26 cm, rounded to 175.3
+        assert status.head_distance_cm == 175.3
+
+    def test_parse_odometer_centimeters(self):
+        """Test parsing odometer in centimeters."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = '''
+  PRINT METERS
+     TOTAL NONRESETTABLE:           21744 cm
+     USER RESETTABLE CNTR1:            24 cm
+     USER RESETTABLE CNTR2:         21744 cm
+'''
+        protocol._parse_odometer(response, status)
+
+        assert status.head_distance_cm == 21744.0
+
+    def test_parse_odometer_empty(self):
+        """Test parsing empty odometer response."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        protocol._parse_odometer("", status)
+
+        assert status.head_distance_cm is None
 
 
 class TestZPLCommands:
@@ -372,7 +406,7 @@ class TestPrinterStatus:
         assert status.paused is None
         assert status.buffer_full is None
         assert status.labels_printed is None
-        assert status.head_distance_inches is None
+        assert status.head_distance_cm is None
         assert status.print_speed is None
         assert status.darkness is None
         assert status.label_length_mm is None

@@ -57,9 +57,6 @@
       "firmware": {
         "name": "Firmware"
       },
-      "labels_printed": {
-        "name": "Labels Printed"
-      },
       "head_distance": {
         "name": "Head Distance"
       },

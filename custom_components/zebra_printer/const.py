@@ -45,7 +45,6 @@ EPL2_FEED_LABEL = "P1"
 # Sensor keys
 SENSOR_MODEL = "model"
 SENSOR_FIRMWARE = "firmware"
-SENSOR_LABELS_PRINTED = "labels_printed"
 SENSOR_HEAD_DISTANCE = "head_distance"
 SENSOR_PRINT_SPEED = "print_speed"
 SENSOR_DARKNESS = "darkness"
