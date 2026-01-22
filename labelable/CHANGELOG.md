@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.1.dev9
+
+- Fix sensor availability handling:
+  - Static sensors (model, firmware, language) stay available always
+  - Polled sensors (speed, darkness, dimensions, status) become unavailable when unreachable
+  - Binary sensors (ready, head_open, etc.) become unavailable when unreachable
+- Clean up dead code in EPL2 protocol parser
+
+## 0.1.1.dev8
+
+- Fix EPL2 response timing:
+  - Add 0.5s delay after sending command before reading response
+  - Read response in chunks to capture full multi-line UQ output
+  - Fixes EPL2 sensors showing as Unknown or Unavailable
+
 ## 0.1.1.dev7
 
 - Fix EPL2 sensor availability:

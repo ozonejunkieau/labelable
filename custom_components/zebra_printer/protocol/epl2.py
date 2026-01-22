@@ -2,18 +2,63 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 
-from ..const import EPL2_CALIBRATE, EPL2_STATUS
+from ..const import EPL2_CALIBRATE, EPL2_STATUS, READ_TIMEOUT
 from .base import PrinterProtocol, PrinterStatus
 
 # Print method constants
 PRINT_METHOD_DIRECT = "direct_thermal"
 PRINT_METHOD_TRANSFER = "thermal_transfer"
 
+# EPL2 printers need time to generate the full UQ response
+EPL2_RESPONSE_DELAY = 0.5  # seconds to wait before reading
+
 
 class EPL2Protocol(PrinterProtocol):
     """EPL2 protocol implementation."""
+
+    async def send_command(self, command: str) -> str:
+        """Send command and read response with EPL2-specific handling.
+
+        EPL2 printers may send multi-line responses with delays between chunks.
+        We add a small delay and read multiple times to get the complete response.
+        """
+        if not self._writer or not self._reader:
+            return ""
+
+        try:
+            # Send command
+            self._writer.write(f"{command}\r\n".encode())
+            await self._writer.drain()
+
+            # Wait for printer to prepare response
+            await asyncio.sleep(EPL2_RESPONSE_DELAY)
+
+            # Read response, potentially in multiple chunks
+            chunks = []
+            try:
+                while True:
+                    chunk = await asyncio.wait_for(
+                        self._reader.read(4096),
+                        timeout=READ_TIMEOUT,
+                    )
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    # Short delay to check for more data
+                    await asyncio.sleep(0.1)
+                    # Check if more data is available
+                    if self._reader.at_eof():
+                        break
+            except TimeoutError:
+                # Timeout is expected when no more data
+                pass
+
+            return b"".join(chunks).decode("latin-1", errors="replace")
+        except (TimeoutError, OSError):
+            return ""
 
     async def probe(self) -> bool:
         """Probe if EPL2 is supported by checking UQ response."""
@@ -192,26 +237,6 @@ class EPL2Protocol(PrinterProtocol):
                 status.darkness = int(darkness_match.group(1))
             except ValueError:
                 pass
-
-    def _parse_status_flags(self, flags_str: str, status: PrinterStatus) -> None:
-        """Parse EPL2 status flags from comma-separated format.
-
-        Status byte interpretation (varies by model):
-        Bit 0: Paper out
-        Bit 1: Pause
-        Bit 2: Head up (some models)
-        Bit 3: Ribbon out (some models)
-        """
-        try:
-            flags = int(flags_str)
-            status.paper_out = bool(flags & 0x01)
-            status.paused = bool(flags & 0x02)
-            if flags & 0x04:
-                status.head_open = True
-            if flags & 0x08:
-                status.ribbon_out = True
-        except ValueError:
-            pass
 
     def get_calibrate_command(self) -> str:
         """Get EPL2 calibration command."""

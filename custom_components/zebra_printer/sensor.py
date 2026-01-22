@@ -45,6 +45,7 @@ class ZebraSensorEntityDescription(SensorEntityDescription):
 
     value_fn: Callable[[PrinterStatus], Any]
     zpl_only: bool = False
+    always_available: bool = False  # True for static sensors (model, firmware, language)
 
 
 SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
@@ -53,12 +54,14 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         translation_key=SENSOR_MODEL,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.model,
+        always_available=True,  # Static - doesn't change
     ),
     ZebraSensorEntityDescription(
         key=SENSOR_FIRMWARE,
         translation_key=SENSOR_FIRMWARE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.firmware,
+        always_available=True,  # Static - doesn't change
     ),
     ZebraSensorEntityDescription(
         key=SENSOR_HEAD_DISTANCE,
@@ -140,6 +143,7 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         translation_key=SENSOR_LANGUAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.protocol_type,
+        always_available=True,  # Static - determined at setup
     ),
 )
 
@@ -186,5 +190,14 @@ class ZebraSensor(ZebraPrinterEntity, SensorEntity):
 
     @property
     def available(self) -> bool:
-        """Return if entity is available."""
-        return self.coordinator.data is not None and self.coordinator.data.online
+        """Return if entity is available.
+
+        Static sensors (model, firmware, language) stay available once we
+        have data - they don't change and don't require live polling.
+        Polled sensors become unavailable when printer is unreachable.
+        """
+        if self.coordinator.data is None:
+            return False
+        if self.entity_description.always_available:
+            return True
+        return self.coordinator.data.online

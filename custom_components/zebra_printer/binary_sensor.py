@@ -142,9 +142,11 @@ class ZebraBinarySensor(ZebraPrinterEntity, BinarySensorEntity):
 
     @property
     def available(self) -> bool:
-        """Return if entity is available."""
-        # Ready sensor is unavailable when we can't reach the printer
-        if self.entity_description.key == BINARY_SENSOR_READY:
-            return self.coordinator.data is not None and self.coordinator.data.online
-        # Other sensors are only available when printer is online
-        return self.coordinator.data is not None and self.coordinator.data.online
+        """Return if entity is available.
+
+        All binary sensors are polled status values that require live
+        connection. They become unavailable when printer is unreachable.
+        """
+        if self.coordinator.data is None:
+            return False
+        return self.coordinator.data.online
