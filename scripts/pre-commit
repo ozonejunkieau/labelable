@@ -7,12 +7,22 @@ set -e
 echo "Checking version consistency..."
 PY_VERSION=$(grep -o '__version__ = "[^"]*"' src/labelable/__init__.py | cut -d'"' -f2)
 HA_VERSION=$(grep -o 'version: "[^"]*"' labelable/config.yaml | cut -d'"' -f2)
+MANIFEST_VERSION=$(grep -o '"version": "[^"]*"' custom_components/zebra_printer/manifest.json | cut -d'"' -f4)
 
+MISMATCH=0
 if [ "$PY_VERSION" != "$HA_VERSION" ]; then
+    MISMATCH=1
+fi
+if [ "$PY_VERSION" != "$MANIFEST_VERSION" ]; then
+    MISMATCH=1
+fi
+
+if [ "$MISMATCH" = "1" ]; then
     echo "ERROR: Version mismatch!"
-    echo "  src/labelable/__init__.py: $PY_VERSION"
-    echo "  labelable/config.yaml:     $HA_VERSION"
-    echo "Please ensure both versions match before committing."
+    echo "  src/labelable/__init__.py:                    $PY_VERSION"
+    echo "  labelable/config.yaml:                        $HA_VERSION"
+    echo "  custom_components/zebra_printer/manifest.json: $MANIFEST_VERSION"
+    echo "Please ensure all versions match before committing."
     exit 1
 fi
 echo "Versions match: $PY_VERSION"

@@ -2,12 +2,14 @@
 
 ## 0.1.1.dev6
 
-- Zebra Printer HA integration improvements (v1.0.3):
+- Zebra Printer HA integration improvements:
   - Replace 'online' sensor with 'ready' sensor (shows error state, unavailable when unreachable)
   - Add 'language' sensor to report ZPL or EPL2 protocol type
   - Fix EPL2 status parsing for multi-line UQ response format
   - Add thermal transfer capability config option (auto-detect from model or manual checkbox)
   - Print method select only shown for printers configured with thermal transfer capability
+- Unify version numbering across addon and custom component
+- Pre-commit hook now validates manifest.json version consistency
 
 ## 0.1.1.dev5
 
