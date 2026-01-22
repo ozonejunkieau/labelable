@@ -55,6 +55,7 @@ BINARY_SENSORS: tuple[ZebraBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.head_open,
+        zpl_only=True,  # EPL2 UQ response doesn't provide head status
     ),
     ZebraBinarySensorEntityDescription(
         key=BINARY_SENSOR_PAPER_OUT,
@@ -62,6 +63,7 @@ BINARY_SENSORS: tuple[ZebraBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.paper_out,
+        zpl_only=True,  # EPL2 UQ response doesn't provide paper status
     ),
     ZebraBinarySensorEntityDescription(
         key=BINARY_SENSOR_RIBBON_OUT,
@@ -69,7 +71,7 @@ BINARY_SENSORS: tuple[ZebraBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.ribbon_out,
-        zpl_only=True,
+        # Available on both ZPL and EPL2 (EPL2 uses rY/rN in I line)
     ),
     ZebraBinarySensorEntityDescription(
         key=BINARY_SENSOR_PAUSED,
@@ -77,6 +79,7 @@ BINARY_SENSORS: tuple[ZebraBinarySensorEntityDescription, ...] = (
         # No device_class - will show On/Off, translations provide "Paused"/"Not Paused"
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.paused,
+        zpl_only=True,  # EPL2 UQ response doesn't provide pause status
     ),
     ZebraBinarySensorEntityDescription(
         key=BINARY_SENSOR_BUFFER_FULL,

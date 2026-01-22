@@ -76,14 +76,14 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         native_unit_of_measurement="ips",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.print_speed,
-        zpl_only=True,
+        # Available on both ZPL and EPL2
     ),
     ZebraSensorEntityDescription(
         key=SENSOR_DARKNESS,
         translation_key=SENSOR_DARKNESS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.darkness,
-        zpl_only=True,
+        # Available on both ZPL and EPL2
     ),
     ZebraSensorEntityDescription(
         key=SENSOR_LABEL_LENGTH,
@@ -92,7 +92,7 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.label_length_mm,
-        zpl_only=True,
+        # Available on both ZPL and EPL2
     ),
     ZebraSensorEntityDescription(
         key=SENSOR_PRINT_WIDTH,
@@ -101,7 +101,7 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.print_width_mm,
-        zpl_only=True,
+        # Available on both ZPL and EPL2
     ),
     ZebraSensorEntityDescription(
         key=SENSOR_PRINT_MODE,

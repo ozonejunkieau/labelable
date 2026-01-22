@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1.dev7
+
+- Fix EPL2 sensor availability:
+  - Enable print_speed, darkness, label_length, print_width sensors for EPL2
+  - Enable ribbon_out binary sensor for EPL2 (uses rY/rN from I line)
+  - Mark head_open, paper_out, paused as ZPL-only (EPL2 UQ doesn't provide these)
+
 ## 0.1.1.dev6
 
 - Zebra Printer HA integration improvements:
