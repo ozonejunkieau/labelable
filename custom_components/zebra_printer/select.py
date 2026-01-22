@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from homeassistant.components.select import SelectEntity
 from homeassistant.const import EntityCategory
 
-from .const import DOMAIN, PROTOCOL_ZPL, SENSOR_PRINT_METHOD
+from .const import CONF_THERMAL_TRANSFER, DOMAIN, PROTOCOL_ZPL, SENSOR_PRINT_METHOD
 from .coordinator import ZebraPrinterCoordinator
 from .entity import ZebraPrinterEntity
 
@@ -32,13 +32,10 @@ async def async_setup_entry(
     coordinator: ZebraPrinterCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     # Only add print method select for ZPL printers that support thermal transfer
-    # The capability is determined from ~HI response (last field = T for transfer capable)
+    # The capability is determined during config flow (from model name or user input)
     if coordinator.protocol_type == PROTOCOL_ZPL:
-        # Check if printer is thermal transfer capable
-        if (
-            coordinator.data is not None
-            and coordinator.data.thermal_transfer_capable
-        ):
+        # Check if printer is thermal transfer capable from config entry
+        if entry.data.get(CONF_THERMAL_TRANSFER, False):
             async_add_entities([ZebraPrintMethodSelect(coordinator)])
 
 

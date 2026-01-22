@@ -10,9 +10,23 @@
           "port": "Port"
         }
       },
+      "thermal_transfer": {
+        "title": "Printer Capabilities",
+        "description": "Could not auto-detect capabilities for {model}. Does this printer support thermal transfer printing (using ribbon)?",
+        "data": {
+          "thermal_transfer_capable": "Supports Thermal Transfer"
+        }
+      },
       "dhcp_confirm": {
         "title": "Discovered Zebra Printer",
         "description": "A {model} was discovered at {host}. Do you want to add it?"
+      },
+      "dhcp_thermal_transfer": {
+        "title": "Printer Capabilities",
+        "description": "A {model} was discovered at {host}. Does this printer support thermal transfer printing (using ribbon)?",
+        "data": {
+          "thermal_transfer_capable": "Supports Thermal Transfer"
+        }
       }
     },
     "error": {
@@ -27,8 +41,12 @@
   },
   "entity": {
     "binary_sensor": {
-      "online": {
-        "name": "Online"
+      "ready": {
+        "name": "Ready",
+        "state": {
+          "on": "Ready",
+          "off": "Error"
+        }
       },
       "head_open": {
         "name": "Head Open"
@@ -86,6 +104,9 @@
       },
       "warnings": {
         "name": "Warnings"
+      },
+      "language": {
+        "name": "Language"
       }
     },
     "select": {

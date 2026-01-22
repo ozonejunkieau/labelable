@@ -51,7 +51,7 @@ class ZPLProtocol(PrinterProtocol):
 
     async def get_status(self) -> PrinterStatus:
         """Get comprehensive printer status."""
-        status = PrinterStatus(online=True)
+        status = PrinterStatus(online=True, protocol_type="ZPL")
 
         # Get host identification (~HI)
         hi_response = await self.send_command(ZPL_HOST_IDENTIFICATION)
@@ -97,19 +97,8 @@ class ZPLProtocol(PrinterProtocol):
             status.model = parts[0].strip()
         if len(parts) >= 2:
             status.firmware = parts[1].strip()
-
-        # Check last field for print method capability (D or T)
-        if len(parts) >= 4:
-            last_field = parts[-1].strip().upper()
-            # Could be just "D" or "T", or might be embedded in memory string
-            if last_field == "T" or last_field.endswith("T"):
-                status.thermal_transfer_capable = True
-            elif last_field == "D" or last_field.endswith("D"):
-                status.thermal_transfer_capable = False
-            else:
-                # If we can't determine from ~HI, check if print_method is thermal_transfer
-                # (will be set later from ~HS parsing)
-                pass
+        # Note: thermal_transfer_capable is detected from ~HS line 2 field 4
+        # where 1 = thermal transfer mode active (confirms capability)
 
     def _parse_host_status(self, response: str, status: PrinterStatus) -> None:
         """Parse ~HS response for status flags and configuration.
@@ -179,8 +168,12 @@ class ZPLProtocol(PrinterProtocol):
             status.ribbon_out = parts[3].strip() == "1"
         if len(parts) >= 5:
             # Thermal transfer mode: 0=direct thermal, 1=thermal transfer
+            # Note: This indicates current mode, not capability (capability is stored in config)
             tt_mode = parts[4].strip()
-            status.print_method = PRINT_METHOD_TRANSFER if tt_mode == "1" else PRINT_METHOD_DIRECT
+            if tt_mode == "1":
+                status.print_method = PRINT_METHOD_TRANSFER
+            else:
+                status.print_method = PRINT_METHOD_DIRECT
         if len(parts) >= 6:
             mode_code = parts[5].strip()
             status.print_mode = PRINT_MODES.get(mode_code, PRINT_MODE_UNKNOWN)
@@ -250,9 +243,7 @@ class ZPLProtocol(PrinterProtocol):
         status.raw_status["es_response"] = response
 
         # Parse ERRORS line
-        error_match = re.search(
-            r"ERRORS:\s*(\d)\s+([0-9A-Fa-f]{8})\s+([0-9A-Fa-f]{8})", response
-        )
+        error_match = re.search(r"ERRORS:\s*(\d)\s+([0-9A-Fa-f]{8})\s+([0-9A-Fa-f]{8})", response)
         if error_match:
             has_error = error_match.group(1) == "1"
             # group1 is nibbles 8-1 (rightmost 8 hex digits)
@@ -270,9 +261,7 @@ class ZPLProtocol(PrinterProtocol):
                 status.error_flags = "None"
 
         # Parse WARNINGS line
-        warning_match = re.search(
-            r"WARNINGS:\s*(\d)\s+([0-9A-Fa-f]{8})\s+([0-9A-Fa-f]{8})", response
-        )
+        warning_match = re.search(r"WARNINGS:\s*(\d)\s+([0-9A-Fa-f]{8})\s+([0-9A-Fa-f]{8})", response)
         if warning_match:
             has_warning = warning_match.group(1) == "1"
             # group1 is nibbles 8-1 (rightmost 8 hex digits)

@@ -29,7 +29,6 @@ class PrinterStatus:
     buffer_full: bool | None = None
 
     # Sensors
-    labels_printed: int | None = None  # Not available on most models
     head_distance_cm: float | None = None
     print_speed: int | None = None
     darkness: int | None = None
@@ -43,8 +42,9 @@ class PrinterStatus:
     error_flags: str = "None"  # Comma-separated error descriptions or "None"
     warning_flags: str = "None"  # Comma-separated warning descriptions or "None"
 
-    # Capabilities (from ~HI response)
+    # Capabilities
     thermal_transfer_capable: bool = False  # True if printer supports thermal transfer
+    protocol_type: str | None = None  # "ZPL" or "EPL2" for language sensor
 
     # Raw data for debugging
     raw_status: dict[str, Any] = field(default_factory=dict)

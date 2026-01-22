@@ -46,16 +46,12 @@ SERVICE_CALIBRATE_SCHEMA = vol.Schema(
 SERVICE_FEED_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Optional(ATTR_COUNT, default=1): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=10)
-        ),
+        vol.Optional(ATTR_COUNT, default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
     }
 )
 
 
-def get_coordinator_for_device(
-    hass: HomeAssistant, device_id: str
-) -> ZebraPrinterCoordinator:
+def get_coordinator_for_device(hass: HomeAssistant, device_id: str) -> ZebraPrinterCoordinator:
     """Get coordinator for a device ID."""
     device_registry = dr.async_get(hass)
     device = device_registry.async_get(device_id)
@@ -83,9 +79,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         success = await coordinator.async_send_raw(data)
         if not success:
-            raise HomeAssistantError(
-                f"Failed to send data to printer {coordinator.host}"
-            )
+            raise HomeAssistantError(f"Failed to send data to printer {coordinator.host}")
 
     async def handle_calibrate(call: ServiceCall) -> None:
         """Handle calibrate service call."""
@@ -95,9 +89,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         success = await coordinator.async_calibrate()
         if not success:
-            raise HomeAssistantError(
-                f"Failed to calibrate printer {coordinator.host}"
-            )
+            raise HomeAssistantError(f"Failed to calibrate printer {coordinator.host}")
 
     async def handle_feed(call: ServiceCall) -> None:
         """Handle feed service call."""
@@ -108,9 +100,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         success = await coordinator.async_feed(count)
         if not success:
-            raise HomeAssistantError(
-                f"Failed to feed labels on printer {coordinator.host}"
-            )
+            raise HomeAssistantError(f"Failed to feed labels on printer {coordinator.host}")
 
     hass.services.async_register(
         DOMAIN,

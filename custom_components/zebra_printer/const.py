@@ -29,6 +29,7 @@ PROTOCOL_EPL2 = "epl2"
 CONF_HOST = "host"
 CONF_PORT = "port"
 CONF_PROTOCOL = "protocol"
+CONF_THERMAL_TRANSFER = "thermal_transfer_capable"
 
 # ZPL Commands
 ZPL_HOST_STATUS = "~HS"
@@ -103,9 +104,10 @@ SENSOR_PRINT_MODE = "print_mode"
 SENSOR_PRINT_METHOD = "print_method"
 SENSOR_ERRORS = "errors"
 SENSOR_WARNINGS = "warnings"
+SENSOR_LANGUAGE = "language"
 
 # Binary sensor keys
-BINARY_SENSOR_ONLINE = "online"
+BINARY_SENSOR_READY = "ready"
 BINARY_SENSOR_HEAD_OPEN = "head_open"
 BINARY_SENSOR_PAPER_OUT = "paper_out"
 BINARY_SENSOR_RIBBON_OUT = "ribbon_out"

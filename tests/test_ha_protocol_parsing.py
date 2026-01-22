@@ -427,40 +427,71 @@ class TestZPLCommands:
 class TestEPL2StatusParsing:
     """Tests for EPL2 UQ response parsing."""
 
-    def test_parse_uq_single_line(self):
-        """Test parsing single-line UQ response."""
+    def test_parse_uq_simple(self):
+        """Test parsing simple UQ response with model and firmware."""
         protocol = EPL2Protocol("192.168.1.100")
         status = PrinterStatus()
 
-        response = "UKQ1935HMU V4.70,8,200,0001,000"
-        protocol._parse_uq_response(response, status)
-
-        assert status.model == "UKQ1935HMU"
-        assert status.firmware == "V4.70"
-        assert status.print_speed == 8
-
-    def test_parse_uq_single_line_no_comma(self):
-        """Test parsing single-line UQ response without commas."""
-        protocol = EPL2Protocol("192.168.1.100")
-        status = PrinterStatus()
-
-        # User reported this format: "UKQ1935HLU V4.42"
-        response = "UKQ1935HLU V4.42"
+        response = "UKQ1935HLU      V4.42"
         protocol._parse_uq_response(response, status)
 
         assert status.model == "UKQ1935HLU"
         assert status.firmware == "V4.42"
 
-    def test_parse_uq_multi_line(self):
-        """Test parsing multi-line UQ response."""
+    def test_parse_uq_full_multiline(self):
+        """Test parsing full multi-line UQ response."""
         protocol = EPL2Protocol("192.168.1.100")
         status = PrinterStatus()
 
-        response = "LP2844\nV4.45\nSerial: ABC123"
+        # Real multi-line UQ response format
+        response = """UKQ1935HLU      V4.42
+Serial port:96,N,8,1
+Page Mode
+Image buffer size:0245K
+Fmem used: 0 (bytes)
+Gmem used: 0
+Emem used: 29600
+Available: 100959
+I8,0,001 rY JF WN
+S3 D09 R256,000 ZT UN
+q320
+Q120,24
+Option:d,Ff
+09 18 29
+Cover: T=127, C=148"""
         protocol._parse_uq_response(response, status)
 
-        assert status.model == "LP2844"
-        assert status.firmware == "V4.45"
+        assert status.model == "UKQ1935HLU"
+        assert status.firmware == "V4.42"
+        assert status.print_speed == 8
+        assert status.ribbon_out is False  # rY means ribbon present
+        assert status.darkness == 9
+        assert status.print_width_mm == 40.0  # 320 dots / 8
+        assert status.label_length_mm == 15.0  # 120 dots / 8
+        assert status.print_method == "direct_thermal"  # Option:d
+
+    def test_parse_uq_thermal_transfer(self):
+        """Test parsing UQ with thermal transfer mode."""
+        protocol = EPL2Protocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = """UKQ1935HMU V4.70
+I4,0,001 rN JF WN
+S2 D15 R256,000 ZT UN
+q800
+Q240,24
+Option:D,Ff"""
+        protocol._parse_uq_response(response, status)
+
+        assert status.model == "UKQ1935HMU"
+        assert status.firmware == "V4.70"
+        assert status.print_speed == 4
+        assert status.ribbon_out is True  # rN means ribbon out
+        assert status.darkness == 15
+        assert status.print_width_mm == 100.0  # 800 / 8
+        assert status.label_length_mm == 30.0  # 240 / 8
+        assert status.print_method == "thermal_transfer"  # Option:D
+        assert status.thermal_transfer_capable is True
 
     def test_parse_uq_empty_response(self):
         """Test parsing empty UQ response."""
@@ -472,31 +503,72 @@ class TestEPL2StatusParsing:
         assert status.model is None
         assert status.firmware is None
 
-    def test_parse_status_flags(self):
-        """Test parsing EPL2 status flags."""
+    def test_parse_i_line_ribbon_present(self):
+        """Test parsing I line with ribbon present."""
         protocol = EPL2Protocol("192.168.1.100")
         status = PrinterStatus()
 
-        # Flags: 0x01=paper_out, 0x02=paused, 0x04=head_open, 0x08=ribbon_out
-        # 0x0F = all flags set
-        response = "LP2844 V4.45,8,200,0001,15"
-        protocol._parse_uq_response(response, status)
+        protocol._parse_i_line("I8,0,001 rY JF WN", status)
 
-        assert status.paper_out is True
-        assert status.paused is True
-        assert status.head_open is True
+        assert status.print_speed == 8
+        assert status.ribbon_out is False
+
+    def test_parse_i_line_ribbon_out(self):
+        """Test parsing I line with ribbon out."""
+        protocol = EPL2Protocol("192.168.1.100")
+        status = PrinterStatus()
+
+        protocol._parse_i_line("I4,0,001 rN JF WN", status)
+
+        assert status.print_speed == 4
         assert status.ribbon_out is True
 
-    def test_parse_status_flags_none_set(self):
-        """Test parsing EPL2 status flags with none set."""
+    def test_parse_q_line(self):
+        """Test parsing q line for print width."""
         protocol = EPL2Protocol("192.168.1.100")
         status = PrinterStatus()
 
-        response = "LP2844 V4.45,8,200,0001,0"
-        protocol._parse_uq_response(response, status)
+        protocol._parse_q_line("q320 Q120,24", status)
 
-        assert status.paper_out is False
-        assert status.paused is False
+        assert status.print_width_mm == 40.0  # 320 / 8
+
+    def test_parse_Q_line(self):
+        """Test parsing Q line for label length."""
+        protocol = EPL2Protocol("192.168.1.100")
+        status = PrinterStatus()
+
+        protocol._parse_Q_line("Q240,24", status)
+
+        assert status.label_length_mm == 30.0  # 240 / 8
+
+    def test_parse_option_line_direct(self):
+        """Test parsing Option line for direct thermal."""
+        protocol = EPL2Protocol("192.168.1.100")
+        status = PrinterStatus()
+
+        protocol._parse_option_line("Option:d,Ff", status)
+
+        assert status.print_method == "direct_thermal"
+        assert status.thermal_transfer_capable is False
+
+    def test_parse_option_line_transfer(self):
+        """Test parsing Option line for thermal transfer."""
+        protocol = EPL2Protocol("192.168.1.100")
+        status = PrinterStatus()
+
+        protocol._parse_option_line("Option:D,Ff", status)
+
+        assert status.print_method == "thermal_transfer"
+        assert status.thermal_transfer_capable is True
+
+    def test_parse_s_line_darkness(self):
+        """Test parsing S line for darkness."""
+        protocol = EPL2Protocol("192.168.1.100")
+        status = PrinterStatus()
+
+        protocol._parse_s_line("S3 D09 R256,000 ZT UN", status)
+
+        assert status.darkness == 9
 
 
 class TestEPL2Commands:
@@ -533,16 +605,18 @@ class TestPrinterStatus:
         assert status.ribbon_out is None
         assert status.paused is None
         assert status.buffer_full is None
-        assert status.labels_printed is None
         assert status.head_distance_cm is None
         assert status.print_speed is None
         assert status.darkness is None
         assert status.label_length_mm is None
         assert status.print_width_mm is None
         assert status.print_mode is None
+        assert status.print_method is None
         assert status.has_error is False
         assert status.error_flags == "None"
         assert status.warning_flags == "None"
+        assert status.thermal_transfer_capable is False
+        assert status.protocol_type is None
         assert status.raw_status == {}
 
     def test_online_status(self):

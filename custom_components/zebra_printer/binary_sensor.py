@@ -17,9 +17,9 @@ from .const import (
     BINARY_SENSOR_BUFFER_FULL,
     BINARY_SENSOR_HAS_ERROR,
     BINARY_SENSOR_HEAD_OPEN,
-    BINARY_SENSOR_ONLINE,
     BINARY_SENSOR_PAPER_OUT,
     BINARY_SENSOR_PAUSED,
+    BINARY_SENSOR_READY,
     BINARY_SENSOR_RIBBON_OUT,
     DOMAIN,
     PROTOCOL_ZPL,
@@ -44,10 +44,10 @@ class ZebraBinarySensorEntityDescription(BinarySensorEntityDescription):
 
 BINARY_SENSORS: tuple[ZebraBinarySensorEntityDescription, ...] = (
     ZebraBinarySensorEntityDescription(
-        key=BINARY_SENSOR_ONLINE,
-        translation_key=BINARY_SENSOR_ONLINE,
-        device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        value_fn=lambda data: data.online,
+        key=BINARY_SENSOR_READY,
+        translation_key=BINARY_SENSOR_READY,
+        # No device_class - will show state from translations
+        value_fn=lambda data: data.online and not data.has_error,
     ),
     ZebraBinarySensorEntityDescription(
         key=BINARY_SENSOR_HEAD_OPEN,
@@ -140,8 +140,8 @@ class ZebraBinarySensor(ZebraPrinterEntity, BinarySensorEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        # Online sensor is always available (it shows connectivity)
-        if self.entity_description.key == BINARY_SENSOR_ONLINE:
-            return True
+        # Ready sensor is unavailable when we can't reach the printer
+        if self.entity_description.key == BINARY_SENSOR_READY:
+            return self.coordinator.data is not None and self.coordinator.data.online
         # Other sensors are only available when printer is online
         return self.coordinator.data is not None and self.coordinator.data.online

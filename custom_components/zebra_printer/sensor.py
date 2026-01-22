@@ -22,6 +22,7 @@ from .const import (
     SENSOR_FIRMWARE,
     SENSOR_HEAD_DISTANCE,
     SENSOR_LABEL_LENGTH,
+    SENSOR_LANGUAGE,
     SENSOR_MODEL,
     SENSOR_PRINT_MODE,
     SENSOR_PRINT_SPEED,
@@ -133,6 +134,12 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.warning_flags,
         zpl_only=True,
+    ),
+    ZebraSensorEntityDescription(
+        key=SENSOR_LANGUAGE,
+        translation_key=SENSOR_LANGUAGE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.protocol_type,
     ),
 )
 
