@@ -1,5 +1,5 @@
 name: Labelable
-version: "0.1.1-dev10"
+version: "0.1.1-dev11"
 slug: labelable
 description: Label printing API and UI for thermal printers (Zebra ZPL/EPL2)
 url: https://github.com/ozonejunkieau/labelable
@@ -27,6 +27,9 @@ ports_description:
 # Map config directory for persistent storage
 map:
   - config:rw
+
+# API access for auto-discovery of zebra_printer devices
+homeassistant_api: true
 
 # Add-on options
 options:

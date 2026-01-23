@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1-dev11
+
+- Fix addon permissions for HA API access (enables auto-discovery)
+
 ## 0.1.1-dev10
 
 - Add auto-discovery of zebra_printer HA integration devices:
