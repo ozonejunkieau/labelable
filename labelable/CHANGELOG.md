@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1-dev13
+
+- Fix HA-connected printers showing offline and not printing
+  - Add `_is_online_ha()` method to query HA API for printer ready state
+  - Falls back to checking language sensor exists if ready sensor not found
+  - Fetches model info from HA sensor
+
 ## 0.1.1-dev12
 
 - Improve language detection with proper if/elif/else and warning for unknown values

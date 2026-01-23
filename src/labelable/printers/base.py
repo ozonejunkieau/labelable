@@ -1,10 +1,15 @@
 """Abstract base class for printer implementations."""
 
+import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+import aiohttp
+
 from labelable.models.printer import PrinterConfig
+
+logger = logging.getLogger(__name__)
 
 # Cache duration for online status (seconds)
 STATUS_CACHE_TTL = 30.0
@@ -21,6 +26,10 @@ class BasePrinter(ABC):
         self._cache_time: float = 0.0
         self._last_checked: datetime | None = None  # Absolute time of last status check
         self._model_info: str | None = None  # Cached model/version info
+        # HA connection state (set by subclass _connect_ha if applicable)
+        self._ha_session: aiohttp.ClientSession | None = None
+        self._ha_device_id: str | None = None
+        self._ha_url: str | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -114,6 +123,59 @@ class BasePrinter(ABC):
         """
         for _ in range(quantity):
             await self.print_raw(data)
+
+    async def _is_online_ha(self) -> bool:
+        """Check printer status via HA API.
+
+        Used by subclasses when connected via Home Assistant integration.
+        Queries the ready binary sensor, falls back to language sensor existence.
+        """
+        if not self._ha_session or not self._ha_device_id:
+            self._update_cache(False)
+            return False
+
+        try:
+            # Query the ready sensor for this device
+            entity_id = f"binary_sensor.{self._ha_device_id}_ready"
+            async with self._ha_session.get(
+                f"{self._ha_url}/api/states/{entity_id}"
+            ) as resp:
+                if resp.status != 200:
+                    # Sensor not found, try just checking if the device exists via language sensor
+                    entity_id = f"sensor.{self._ha_device_id}_language"
+                    async with self._ha_session.get(
+                        f"{self._ha_url}/api/states/{entity_id}"
+                    ) as resp2:
+                        if resp2.status == 200:
+                            # Device exists, assume online
+                            self._update_cache(True)
+                            return True
+                    logger.warning(f"Printer {self.name}: HA entity not found")
+                    self._update_cache(False)
+                    return False
+
+                state = await resp.json()
+                online = state.get("state") == "on"
+                self._update_cache(online)
+
+                # Get model info from HA if not already set
+                if online and self._model_info is None:
+                    try:
+                        model_entity = f"sensor.{self._ha_device_id}_model"
+                        async with self._ha_session.get(
+                            f"{self._ha_url}/api/states/{model_entity}"
+                        ) as model_resp:
+                            if model_resp.status == 200:
+                                model_state = await model_resp.json()
+                                self._model_info = model_state.get("state")
+                    except Exception:
+                        pass
+
+                return online
+        except Exception as e:
+            logger.warning(f"Printer {self.name}: HA status check failed - {e}")
+            self._update_cache(False)
+            return False
 
     async def __aenter__(self) -> "BasePrinter":
         """Async context manager entry."""

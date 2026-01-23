@@ -21,10 +21,6 @@ class ZPLPrinter(BasePrinter):
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._serial: serial.Serial | None = None
-        # HA connection state
-        self._ha_session: aiohttp.ClientSession | None = None
-        self._ha_device_id: str | None = None
-        self._ha_url: str | None = None
 
     async def connect(self) -> None:
         """Establish connection to the ZPL printer."""
@@ -120,8 +116,8 @@ class ZPLPrinter(BasePrinter):
     async def is_online(self) -> bool:
         """Check if the ZPL printer is online.
 
-        Sends a healthcheck command and checks for response.
-        Default command is ~HS (host status query).
+        For TCP/serial: sends a healthcheck command and checks for response.
+        For HA connections: queries the HA API for the printer's ready state.
         """
         if not self._connected:
             try:
@@ -130,6 +126,10 @@ class ZPLPrinter(BasePrinter):
                 logger.warning(f"Printer {self.name}: connection failed - {e}")
                 self._update_cache(False)
                 return False
+
+        # HA connections: query HA for printer status
+        if self._ha_session:
+            return await self._is_online_ha()
 
         try:
             # Use configured healthcheck command or default
