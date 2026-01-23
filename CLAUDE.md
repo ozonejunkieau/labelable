@@ -115,16 +115,35 @@ templates_dir: ./templates
 
 ### HA Connection Auto-Discovery
 
-When running as a Home Assistant add-on with no printers configured, Labelable will
-automatically discover printers from the `zebra_printer` HA integration:
+When running as a Home Assistant add-on with no printers configured (or missing
+printers section), Labelable automatically discovers printers from the `zebra_printer`
+HA custom integration.
 
 ```yaml
-# Empty printers list triggers auto-discovery
+# Empty or missing printers list triggers auto-discovery
 printers: []
 ```
 
-Auto-discovery queries the HA API for `binary_sensor.*_online` entities from the
-`zebra_printer` integration and creates `HAConnection` configurations automatically.
+**How it works:**
+1. Queries the HA REST API (`/api/states`) for all entity states
+2. Finds `sensor.*_language` entities (unique to zebra_printer integration)
+3. Extracts device name from entity ID (e.g., `sensor.warehouse_printer_language` → `warehouse_printer`)
+4. Determines printer type from the language sensor value (ZPL, EPL2, or defaults to ZPL with warning)
+5. Creates `HAConnection` configurations using the device name as `device_id`
+
+**Requirements:**
+- The `zebra_printer` custom integration must be installed and configured in HA
+- The Labelable add-on must have `homeassistant_api: true` permission (already set in config.yaml)
+- The `SUPERVISOR_TOKEN` environment variable is automatically provided when running as an add-on
+
+**Assumptions:**
+- Device names are derived from entity IDs, not the friendly name
+- Service calls use name-based lookup (supports both device UUID and entity name patterns)
+- Printers are discovered regardless of online/offline status
+- Unknown language values default to ZPL with a warning logged
+
+**Discovered printer naming:**
+- Printers are named with `ha-` prefix: `ha-{device_name}` (e.g., `ha-warehouse_printer`)
 
 ### Template Files (templates/*.yaml)
 

@@ -94,8 +94,8 @@ async def discover_ha_printers() -> list[PrinterConfig]:
     PrinterConfig objects with HA connections.
 
     Detection strategy:
-    1. Query device registry for zebra_printer devices
-    2. Query entity states to get language (printer type)
+    Look for sensor.*_language entities which are unique to zebra_printer.
+    The entity name gives us the device name, and the state gives us the protocol.
     """
     supervisor_token = os.environ.get("SUPERVISOR_TOKEN")
     if not supervisor_token:
@@ -107,74 +107,57 @@ async def discover_ha_printers() -> list[PrinterConfig]:
 
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
-            # Get device registry to find zebra_printer devices
-            logger.debug(f"Querying device registry: {base_url}/config/device_registry")
-            async with session.get(f"{base_url}/config/device_registry") as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    logger.warning(f"Failed to query device registry: {resp.status} - {text}")
-                    return []
-                devices = await resp.json()
-                logger.debug(f"Device registry returned {len(devices)} devices")
-
-            # Get entity states to determine printer type
+            # Get entity states to find zebra_printer sensors
+            logger.debug(f"Querying HA states: {base_url}/states")
             async with session.get(f"{base_url}/states") as resp:
                 if resp.status != 200:
-                    logger.warning(f"Failed to query HA states: {resp.status}")
+                    text = await resp.text()
+                    logger.warning(f"Failed to query HA states: {resp.status} - {text}")
                     return []
                 states = await resp.json()
                 logger.debug(f"States API returned {len(states)} entities")
 
-        # Build entity_id -> state lookup
-        state_lookup = {s["entity_id"]: s for s in states}
-
         printers = []
-        for device in devices:
-            # Check if this device is from zebra_printer integration
-            identifiers = device.get("identifiers", [])
-            is_zebra = any(
-                isinstance(ident, (list, tuple)) and len(ident) >= 1 and ident[0] == "zebra_printer"
-                for ident in identifiers
-            )
-            if not is_zebra:
+        seen_devices = set()
+
+        for state in states:
+            entity_id = state.get("entity_id", "")
+
+            # Look for language sensors from zebra_printer integration
+            # Format: sensor.{device_name}_language
+            if not entity_id.startswith("sensor.") or not entity_id.endswith("_language"):
                 continue
 
-            device_id = device.get("id")
-            device_name = device.get("name_by_user") or device.get("name") or device_id
-            logger.debug(f"Found zebra_printer device: {device_name} (id={device_id})")
+            # Extract device name from entity ID
+            # sensor.my_printer_language -> my_printer
+            device_name = entity_id[7:-9]  # Remove "sensor." prefix and "_language" suffix
+            if device_name in seen_devices:
+                continue
+            seen_devices.add(device_name)
 
-            # Make a safe name for the printer
-            safe_name = device_name.lower().replace(" ", "_").replace("-", "_")
+            # Get printer type from language sensor value
+            language = (state.get("state") or "").upper()
+            if language == "EPL2":
+                printer_type = PrinterType.EPL2
+            elif language == "ZPL":
+                printer_type = PrinterType.ZPL
+            else:
+                logger.warning(f"Unknown printer language '{language}' for {device_name}, defaulting to ZPL")
+                printer_type = PrinterType.ZPL
 
-            # Find language sensor to determine printer type
-            # Entity ID format: sensor.{safe_device_name}_language
-            language_entity = None
-            for entity_id in state_lookup:
-                if entity_id.endswith("_language") and entity_id.startswith("sensor."):
-                    # Check if this entity belongs to this device by checking name match
-                    if safe_name in entity_id or device_name.lower().replace(" ", "_") in entity_id:
-                        language_entity = state_lookup[entity_id]
-                        logger.debug(f"Found language sensor: {entity_id} = {language_entity.get('state')}")
-                        break
-
-            # Determine printer type from language sensor (defaults to ZPL)
-            printer_type = PrinterType.ZPL
-            if language_entity:
-                language = (language_entity.get("state") or "").upper()
-                if language == "EPL2":
-                    printer_type = PrinterType.EPL2
-
+            # Use the device name as the device_id for service calls
+            # The HA service will need to look up the actual device from this
             printers.append(
                 PrinterConfig(
-                    name=f"ha-{safe_name}",
+                    name=f"ha-{device_name}",
                     type=printer_type,
-                    connection=HAConnection(device_id=device_id),
+                    connection=HAConnection(device_id=device_name),
                 )
             )
-            logger.info(f"Discovered HA printer: {device_name} (id={device_id}, type={printer_type})")
+            logger.info(f"Discovered HA printer: {device_name} (type={printer_type})")
 
         if not printers:
-            logger.info("No zebra_printer devices found in HA device registry")
+            logger.info("No zebra_printer devices found in HA states")
         else:
             logger.info(f"Discovered {len(printers)} printer(s) from HA integration")
 

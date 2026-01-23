@@ -56,27 +56,6 @@ class TestDiscoverHAPrinters:
     """Tests for discover_ha_printers function."""
 
     @pytest.fixture
-    def mock_ha_device_registry(self):
-        """Sample HA device registry response with zebra_printer devices."""
-        return [
-            {
-                "id": "device_abc123",
-                "name": "Warehouse Printer",
-                "identifiers": [["zebra_printer", "config_entry_1"]],
-            },
-            {
-                "id": "device_def456",
-                "name": "Label Maker",
-                "identifiers": [["zebra_printer", "config_entry_2"]],
-            },
-            {
-                "id": "device_other",
-                "name": "Some Other Device",
-                "identifiers": [["other_integration", "xyz"]],
-            },
-        ]
-
-    @pytest.fixture
     def mock_ha_states_response(self):
         """Sample HA states API response with zebra_printer entities."""
         return [
@@ -110,29 +89,14 @@ class TestDiscoverHAPrinters:
             printers = await discover_ha_printers()
             assert printers == []
 
-    async def test_discover_finds_printers(self, mock_ha_device_registry, mock_ha_states_response):
-        """Test discovery finds printers from HA device registry and states."""
-        # Create mock responses for device registry and states
-        device_response = AsyncMock()
-        device_response.status = 200
-        device_response.json = AsyncMock(return_value=mock_ha_device_registry)
-
-        states_response = AsyncMock()
-        states_response.status = 200
-        states_response.json = AsyncMock(return_value=mock_ha_states_response)
-
-        # Track which URL is being requested
-        call_count = [0]
-
-        def mock_get(url):
-            call_count[0] += 1
-            if "device_registry" in url:
-                return create_async_context_manager(device_response)
-            else:
-                return create_async_context_manager(states_response)
+    async def test_discover_finds_printers(self, mock_ha_states_response):
+        """Test discovery finds printers from HA states API."""
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value=mock_ha_states_response)
 
         mock_session = MagicMock()
-        mock_session.get = mock_get
+        mock_session.get = MagicMock(return_value=create_async_context_manager(mock_response))
 
         with patch.dict(os.environ, {"SUPERVISOR_TOKEN": "test_token"}):
             with patch("aiohttp.ClientSession") as mock_client:
@@ -148,18 +112,19 @@ class TestDiscoverHAPrinters:
         assert zpl_printer.name == "ha-warehouse_printer"
         assert zpl_printer.type == PrinterType.ZPL
         assert isinstance(zpl_printer.connection, HAConnection)
-        assert zpl_printer.connection.device_id == "device_abc123"
+        assert zpl_printer.connection.device_id == "warehouse_printer"
 
         # Check EPL2 printer
         epl_printer = next(p for p in printers if "label" in p.name)
         assert epl_printer.name == "ha-label_maker"
         assert epl_printer.type == PrinterType.EPL2
-        assert epl_printer.connection.device_id == "device_def456"
+        assert epl_printer.connection.device_id == "label_maker"
 
     async def test_discover_handles_api_error(self):
         """Test discovery handles API errors gracefully."""
         mock_response = AsyncMock()
         mock_response.status = 401  # Unauthorized
+        mock_response.text = AsyncMock(return_value="Unauthorized")
 
         mock_session = MagicMock()
         mock_session.get = MagicMock(return_value=create_async_context_manager(mock_response))

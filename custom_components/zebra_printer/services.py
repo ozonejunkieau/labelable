@@ -52,17 +52,33 @@ SERVICE_FEED_SCHEMA = vol.Schema(
 
 
 def get_coordinator_for_device(hass: HomeAssistant, device_id: str) -> ZebraPrinterCoordinator:
-    """Get coordinator for a device ID."""
+    """Get coordinator for a device ID or entity name.
+
+    Supports two formats:
+    1. Device registry UUID (e.g., "abc123def456...")
+    2. Entity name pattern (e.g., "my_printer" from sensor.my_printer_language)
+    """
     device_registry = dr.async_get(hass)
+
+    # First try direct device registry lookup (for UUIDs)
     device = device_registry.async_get(device_id)
+    if device is not None:
+        for entry_id in device.config_entries:
+            if entry_id in hass.data.get(DOMAIN, {}):
+                return hass.data[DOMAIN][entry_id]
 
-    if device is None:
-        raise HomeAssistantError(f"Device {device_id} not found")
+    # Fallback: search by matching device name or config entry title
+    # This handles the case where device_id is an entity name pattern
+    for entry_id, coordinator in hass.data.get(DOMAIN, {}).items():
+        if not isinstance(coordinator, ZebraPrinterCoordinator):
+            continue
 
-    # Find the config entry for this device
-    for entry_id in device.config_entries:
-        if entry_id in hass.data.get(DOMAIN, {}):
-            return hass.data[DOMAIN][entry_id]
+        # Check if the config entry title matches
+        entry_title = coordinator.config_entry.title.lower().replace(" ", "_").replace("-", "_")
+        device_id_normalized = device_id.lower().replace(" ", "_").replace("-", "_")
+
+        if entry_title == device_id_normalized or device_id_normalized in entry_title:
+            return coordinator
 
     raise HomeAssistantError(f"No Zebra printer found for device {device_id}")
 

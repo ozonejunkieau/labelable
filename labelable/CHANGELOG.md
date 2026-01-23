@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1-dev12
+
+- Improve language detection with proper if/elif/else and warning for unknown values
+- Update auto-discovery documentation with detailed explanation
+
 ## 0.1.1-dev11
 
 - Fix addon permissions for HA API access (enables auto-discovery)
