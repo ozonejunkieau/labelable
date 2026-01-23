@@ -137,15 +137,11 @@ class BasePrinter(ABC):
         try:
             # Query the ready sensor for this device
             entity_id = f"binary_sensor.{self._ha_device_id}_ready"
-            async with self._ha_session.get(
-                f"{self._ha_url}/api/states/{entity_id}"
-            ) as resp:
+            async with self._ha_session.get(f"{self._ha_url}/api/states/{entity_id}") as resp:
                 if resp.status != 200:
                     # Sensor not found, try just checking if the device exists via language sensor
                     entity_id = f"sensor.{self._ha_device_id}_language"
-                    async with self._ha_session.get(
-                        f"{self._ha_url}/api/states/{entity_id}"
-                    ) as resp2:
+                    async with self._ha_session.get(f"{self._ha_url}/api/states/{entity_id}") as resp2:
                         if resp2.status == 200:
                             # Device exists, assume online
                             self._update_cache(True)
@@ -162,9 +158,7 @@ class BasePrinter(ABC):
                 if online and self._model_info is None:
                     try:
                         model_entity = f"sensor.{self._ha_device_id}_model"
-                        async with self._ha_session.get(
-                            f"{self._ha_url}/api/states/{model_entity}"
-                        ) as model_resp:
+                        async with self._ha_session.get(f"{self._ha_url}/api/states/{model_entity}") as model_resp:
                             if model_resp.status == 200:
                                 model_state = await model_resp.json()
                                 self._model_info = model_state.get("state")

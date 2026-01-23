@@ -50,6 +50,9 @@ echo "Versions match: Python=$PY_VERSION, HA=$HA_VERSION"
 echo "Running ruff check..."
 uv run ruff check src tests
 
+echo "Running ruff format check..."
+uv run ruff format --check src tests
+
 echo "Running tests..."
 uv run pytest -q
 
