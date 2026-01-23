@@ -5,27 +5,47 @@
 set -e
 
 echo "Checking version consistency..."
+
+# Python uses PEP 440 (0.1.1.dev10), HA uses semver (0.1.1-dev10)
+# Normalize by replacing .dev with -dev for comparison
 PY_VERSION=$(grep -o '__version__ = "[^"]*"' src/labelable/__init__.py | cut -d'"' -f2)
+PYPROJECT_VERSION=$(grep -o '^version = "[^"]*"' pyproject.toml | cut -d'"' -f2)
 HA_VERSION=$(grep -o 'version: "[^"]*"' labelable/config.yaml | cut -d'"' -f2)
 MANIFEST_VERSION=$(grep -o '"version": "[^"]*"' custom_components/zebra_printer/manifest.json | cut -d'"' -f4)
 
+# Normalize versions for comparison (convert PEP 440 .dev to semver -dev)
+normalize_version() {
+    echo "$1" | sed 's/\.dev/-dev/g'
+}
+
+PY_NORM=$(normalize_version "$PY_VERSION")
+PYPROJECT_NORM=$(normalize_version "$PYPROJECT_VERSION")
+HA_NORM=$(normalize_version "$HA_VERSION")
+MANIFEST_NORM=$(normalize_version "$MANIFEST_VERSION")
+
 MISMATCH=0
-if [ "$PY_VERSION" != "$HA_VERSION" ]; then
+if [ "$PY_NORM" != "$PYPROJECT_NORM" ]; then
     MISMATCH=1
 fi
-if [ "$PY_VERSION" != "$MANIFEST_VERSION" ]; then
+if [ "$PY_NORM" != "$HA_NORM" ]; then
+    MISMATCH=1
+fi
+if [ "$HA_NORM" != "$MANIFEST_NORM" ]; then
     MISMATCH=1
 fi
 
 if [ "$MISMATCH" = "1" ]; then
     echo "ERROR: Version mismatch!"
+    echo "  pyproject.toml:                               $PYPROJECT_VERSION"
     echo "  src/labelable/__init__.py:                    $PY_VERSION"
     echo "  labelable/config.yaml:                        $HA_VERSION"
     echo "  custom_components/zebra_printer/manifest.json: $MANIFEST_VERSION"
-    echo "Please ensure all versions match before committing."
+    echo ""
+    echo "Python packages use PEP 440 (.dev), HA components use semver (-dev)"
+    echo "Versions must be semantically equivalent."
     exit 1
 fi
-echo "Versions match: $PY_VERSION"
+echo "Versions match: Python=$PY_VERSION, HA=$HA_VERSION"
 
 echo "Running ruff check..."
 uv run ruff check src tests

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1-dev10
+
+- Add auto-discovery of zebra_printer HA integration devices:
+  - Queries HA device registry for zebra_printer devices
+  - Automatically configures printers when no printers section in config
+  - Discovers all devices regardless of online status
+  - Improved logging for debugging discovery issues
+- Switch HA component versions to semver format (0.1.1-dev10 instead of 0.1.1.dev10)
+- Pre-commit hook now validates both PEP 440 and semver version formats
+
 ## 0.1.1.dev9
 
 - Fix sensor availability handling:
