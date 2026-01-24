@@ -18,6 +18,7 @@ from .const import (
     DOMAIN,
     PROTOCOL_ZPL,
     SENSOR_DARKNESS,
+    SENSOR_DPI,
     SENSOR_ERRORS,
     SENSOR_FIRMWARE,
     SENSOR_HEAD_DISTANCE,
@@ -61,6 +62,14 @@ SENSORS: tuple[ZebraSensorEntityDescription, ...] = (
         translation_key=SENSOR_FIRMWARE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: data.firmware,
+        always_available=True,  # Static - doesn't change
+    ),
+    ZebraSensorEntityDescription(
+        key=SENSOR_DPI,
+        translation_key=SENSOR_DPI,
+        native_unit_of_measurement="dpi",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.dpi,
         always_available=True,  # Static - doesn't change
     ),
     ZebraSensorEntityDescription(

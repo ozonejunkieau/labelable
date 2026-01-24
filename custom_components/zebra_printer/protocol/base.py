@@ -45,6 +45,7 @@ class PrinterStatus:
     # Capabilities
     thermal_transfer_capable: bool = False  # True if printer supports thermal transfer
     protocol_type: str | None = None  # "ZPL" or "EPL2" for language sensor
+    dpi: int | None = None  # Print head resolution (203, 300, or 600)
 
     # Raw data for debugging
     raw_status: dict[str, Any] = field(default_factory=dict)

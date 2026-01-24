@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1-dev14
+
+- Add DPI (resolution) sensor for Zebra printers:
+  - ZPL: Extracts from model string (e.g., "ZD420-300dpi") or queries via `! U1 getvar "head.resolution.in_dpi"`
+  - EPL2: Always 203 DPI (hardware limitation)
+- Add button entities for printer actions:
+  - "Calibrate Media" - Triggers media sensor calibration
+  - "Feed Label" - Feeds one label through the printer
+
 ## 0.1.1-dev13
 
 - Fix HA-connected printers showing offline and not printing

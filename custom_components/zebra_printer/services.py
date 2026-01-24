@@ -69,7 +69,7 @@ def get_coordinator_for_device(hass: HomeAssistant, device_id: str) -> ZebraPrin
 
     # Fallback: search by matching device name or config entry title
     # This handles the case where device_id is an entity name pattern
-    for entry_id, coordinator in hass.data.get(DOMAIN, {}).items():
+    for _entry_id, coordinator in hass.data.get(DOMAIN, {}).items():
         if not isinstance(coordinator, ZebraPrinterCoordinator):
             continue
 

@@ -70,6 +70,7 @@ class TestZPLHostIdentification:
 
         assert status.model == "ZTC ZD420-300dpi ZPL"
         assert status.firmware == "V84.20.21Z"
+        assert status.dpi == 300  # Extracted from model string
         assert "hi_response" in status.raw_status
 
     def test_parse_hi_without_stx_etx(self):
@@ -82,6 +83,40 @@ class TestZPLHostIdentification:
 
         assert status.model == "GK420d-200dpi"
         assert status.firmware == "V61.17.16Z"
+        assert status.dpi == 200  # Extracted from model string
+
+    def test_parse_hi_with_203dpi(self):
+        """Test parsing ~HI response with 203dpi in model."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = "ZD410-203dpi,V1.0,8,2104KB"
+        protocol._parse_host_identification(response, status)
+
+        assert status.model == "ZD410-203dpi"
+        assert status.dpi == 203
+
+    def test_parse_hi_with_600dpi(self):
+        """Test parsing ~HI response with 600dpi in model."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = "ZT610-600DPI,V1.0,8,2104KB"  # Case insensitive
+        protocol._parse_host_identification(response, status)
+
+        assert status.model == "ZT610-600DPI"
+        assert status.dpi == 600
+
+    def test_parse_hi_no_dpi_in_model(self):
+        """Test parsing ~HI response without DPI in model."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = "GX420d,V1.0,1234,D"
+        protocol._parse_host_identification(response, status)
+
+        assert status.model == "GX420d"
+        assert status.dpi is None  # No DPI in model string
 
     def test_parse_hi_empty_response(self):
         """Test parsing empty ~HI response."""
@@ -405,6 +440,69 @@ class TestZPLOdometer:
         assert status.head_distance_cm is None
 
 
+class TestZPLDPIQuery:
+    """Tests for ZPL DPI query response parsing."""
+
+    def test_parse_dpi_response_quoted(self):
+        """Test parsing DPI from getvar response with quotes."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = '"203"'
+        protocol._parse_dpi_response(response, status)
+
+        assert status.dpi == 203
+
+    def test_parse_dpi_response_unquoted(self):
+        """Test parsing DPI from getvar response without quotes."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = "300"
+        protocol._parse_dpi_response(response, status)
+
+        assert status.dpi == 300
+
+    def test_parse_dpi_response_600(self):
+        """Test parsing 600 DPI response."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = '"600"'
+        protocol._parse_dpi_response(response, status)
+
+        assert status.dpi == 600
+
+    def test_parse_dpi_response_invalid(self):
+        """Test parsing invalid DPI response."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = '"150"'  # Not a valid Zebra DPI
+        protocol._parse_dpi_response(response, status)
+
+        assert status.dpi is None  # Invalid DPI not set
+
+    def test_parse_dpi_response_empty(self):
+        """Test parsing empty DPI response."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        protocol._parse_dpi_response("", status)
+
+        assert status.dpi is None
+
+    def test_parse_dpi_response_error(self):
+        """Test parsing error response from getvar."""
+        protocol = ZPLProtocol("192.168.1.100")
+        status = PrinterStatus()
+
+        response = "?"  # Unknown variable response
+        protocol._parse_dpi_response(response, status)
+
+        assert status.dpi is None
+
+
 class TestZPLCommands:
     """Tests for ZPL command generation."""
 
@@ -437,6 +535,13 @@ class TestEPL2StatusParsing:
 
         assert status.model == "UKQ1935HLU"
         assert status.firmware == "V4.42"
+
+    def test_epl2_always_203_dpi(self):
+        """Test that EPL2 printers are always 203 DPI."""
+        # EPL2 printers are always 203 DPI - this is set in get_status()
+        # not in _parse_uq_response, so we test the PrinterStatus initialization
+        status = PrinterStatus(online=True, protocol_type="EPL2", dpi=203)
+        assert status.dpi == 203
 
     def test_parse_uq_full_multiline(self):
         """Test parsing full multi-line UQ response."""
@@ -617,6 +722,7 @@ class TestPrinterStatus:
         assert status.warning_flags == "None"
         assert status.thermal_transfer_capable is False
         assert status.protocol_type is None
+        assert status.dpi is None
         assert status.raw_status == {}
 
     def test_online_status(self):

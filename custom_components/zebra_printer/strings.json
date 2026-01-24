@@ -40,6 +40,14 @@
     }
   },
   "entity": {
+    "button": {
+      "calibrate": {
+        "name": "Calibrate Media"
+      },
+      "feed": {
+        "name": "Feed Label"
+      }
+    },
     "binary_sensor": {
       "ready": {
         "name": "Ready",
@@ -77,6 +85,9 @@
       },
       "firmware": {
         "name": "Firmware"
+      },
+      "dpi": {
+        "name": "Resolution"
       },
       "head_distance": {
         "name": "Head Distance"

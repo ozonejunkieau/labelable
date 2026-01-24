@@ -69,7 +69,29 @@ class ZPLProtocol(PrinterProtocol):
         es_response = await self.send_command(ZPL_EXTENDED_STATUS)
         self._parse_extended_status(es_response, status)
 
+        # Query DPI if not found in model string
+        if status.dpi is None:
+            dpi_response = await self.send_command('! U1 getvar "head.resolution.in_dpi"')
+            self._parse_dpi_response(dpi_response, status)
+
         return status
+
+    def _parse_dpi_response(self, response: str, status: PrinterStatus) -> None:
+        """Parse DPI from getvar response.
+
+        Response format: "203" or "300" or "600" (quoted string)
+        """
+        if not response:
+            return
+
+        status.raw_status["dpi_response"] = response
+
+        # Extract numeric value from response (may be quoted)
+        match = re.search(r'"?(\d{3})"?', response)
+        if match:
+            dpi = int(match.group(1))
+            if dpi in (203, 300, 600):
+                status.dpi = dpi
 
     def _parse_host_identification(self, response: str, status: PrinterStatus) -> None:
         """Parse ~HI response for model, firmware, and capabilities.
@@ -95,6 +117,10 @@ class ZPLProtocol(PrinterProtocol):
         parts = clean.split(",")
         if len(parts) >= 1:
             status.model = parts[0].strip()
+            # Try to extract DPI from model string (e.g., "GX430t-300dpi")
+            dpi_match = re.search(r"-(\d{3})dpi", status.model, re.IGNORECASE)
+            if dpi_match:
+                status.dpi = int(dpi_match.group(1))
         if len(parts) >= 2:
             status.firmware = parts[1].strip()
         # Note: thermal_transfer_capable is detected from ~HS line 2 field 4

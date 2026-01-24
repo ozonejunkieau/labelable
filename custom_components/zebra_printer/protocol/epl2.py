@@ -85,7 +85,8 @@ class EPL2Protocol(PrinterProtocol):
         09 18 29
         Cover: T=127, C=148
         """
-        status = PrinterStatus(online=True, protocol_type="EPL2")
+        # EPL2 printers are always 203 DPI
+        status = PrinterStatus(online=True, protocol_type="EPL2", dpi=203)
 
         response = await self.send_command(EPL2_STATUS)
         if not response:
