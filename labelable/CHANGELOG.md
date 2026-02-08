@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.1-dev15
+
+- Add image template engine for visual label rendering:
+  - Text elements with word wrapping, auto-scaling, and alignment
+  - QR code generation via `qrcode` library
+  - DataMatrix barcode generation via `pylibdmtx`
+  - Circle and rectangle label shapes
+  - Circle-aware text wrapping for round labels
+- Add Google Fonts auto-downloading for custom fonts
+- Add `labelable-render` CLI for previewing templates as PNG
+- Add label offset and darkness settings for printer calibration
+- Add calibration templates for circular labels
+- Add basedpyright type checking
+
 ## 0.1.1-dev14
 
 - Add DPI (resolution) sensor for Zebra printers:
