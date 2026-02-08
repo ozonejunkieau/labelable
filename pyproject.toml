@@ -1,6 +1,6 @@
 [project]
 name = "labelable"
-version = "0.1.1.dev16"
+version = "0.1.1.dev17"
 description = "A general purpose label printing API and basic UI"
 readme = "README.md"
 license = "MIT"
@@ -58,6 +58,10 @@ select = ["E", "F", "I", "UP", "B"]
 dev = [
     "basedpyright>=1.37.4",
 ]
+
+[tool.uv]
+# Allow PyPI fallback when HA wheels index has outdated packages (e.g., fonttools)
+index-strategy = "unsafe-best-match"
 
 [tool.basedpyright]
 pythonVersion = "3.12"

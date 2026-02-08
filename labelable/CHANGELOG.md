@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1-dev17
+
+- Fix fonttools dependency at runtime (configure index-strategy in pyproject.toml)
+- Add CI job to build HA add-on image (catches dependency issues earlier)
+
 ## 0.1.1-dev16
 
 - Fix fonttools dependency for HA Alpine base image (use PyPI fallback)
