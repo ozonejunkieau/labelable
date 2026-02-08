@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1-dev16
+
+- Fix fonttools dependency for HA Alpine base image (use PyPI fallback)
+- Add hacs.json for HACS integration discovery
+
 ## 0.1.1-dev15
 
 - Add image template engine for visual label rendering:
