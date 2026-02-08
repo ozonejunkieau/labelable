@@ -20,12 +20,15 @@ class AppConfig(BaseModel):
 
     queue_timeout_seconds: int = 300
     templates_dir: Path = Path("./templates")
+    fonts_dir: Path = Path("./fonts")
     printers: list[PrinterConfig] = Field(default_factory=list)
     # User mapping: HA user ID -> display name
     user_mapping: dict[str, str] = Field(default_factory=dict)
     default_user: str = ""
     # API key for external access (optional, if not set API is open)
     api_key: str | None = None
+    # Enable automatic Google Fonts downloading
+    download_google_fonts: bool = False
 
 
 class Settings(BaseSettings):
@@ -61,13 +64,72 @@ def load_config(config_path: Path) -> AppConfig:
     return AppConfig.model_validate(data)
 
 
-def load_templates(templates_dir: Path) -> dict[str, TemplateConfig]:
-    """Load all template configurations from the templates directory."""
+def _extract_fonts_from_template(template: TemplateConfig) -> set[str]:
+    """Extract all font names used by a template's elements."""
+    from labelable.models.template import TextElement
+
+    fonts: set[str] = set()
+    for element in template.elements:
+        if isinstance(element, TextElement) and element.font:
+            fonts.add(element.font)
+    return fonts
+
+
+def _validate_template_fonts(
+    template: TemplateConfig,
+    fonts_dir: Path,
+) -> list[str]:
+    """Validate that all fonts required by a template are available.
+
+    Args:
+        template: Template to validate.
+        fonts_dir: Directory containing downloaded fonts.
+
+    Returns:
+        List of missing font names.
+    """
+    from labelable.models.template import TextElement
+    from labelable.templates.fonts import FontManager
+
+    missing: list[str] = []
+    font_manager = FontManager(custom_paths=[fonts_dir] if fonts_dir.exists() else None)
+
+    for element in template.elements:
+        if not isinstance(element, TextElement) or not element.font:
+            continue
+
+        font_name = element.font
+        # Check if font can be found
+        font_path = font_manager._find_font(font_name)
+        if font_path is None:
+            missing.append(font_name)
+
+    return missing
+
+
+def load_templates(
+    templates_dir: Path,
+    fonts_dir: Path | None = None,
+    download_google_fonts: bool = False,
+) -> dict[str, TemplateConfig]:
+    """Load all template configurations from the templates directory.
+
+    Args:
+        templates_dir: Directory containing template YAML files.
+        fonts_dir: Directory for storing/loading fonts.
+        download_google_fonts: If True, attempt to download missing fonts from Google Fonts.
+
+    Returns:
+        Dictionary of template name to TemplateConfig.
+    """
     templates: dict[str, TemplateConfig] = {}
+    pending_templates: list[tuple[Path, TemplateConfig]] = []
 
     if not templates_dir.exists():
         return templates
 
+    # First pass: load all templates and collect font requirements
+    all_fonts: set[str] = set()
     for template_file in templates_dir.glob("*.yaml"):
         # Skip example/reference templates (files starting with underscore)
         if template_file.name.startswith("_"):
@@ -78,12 +140,74 @@ def load_templates(templates_dir: Path) -> dict[str, TemplateConfig]:
                 data = yaml.safe_load(f)
             if data:
                 template = TemplateConfig.model_validate(data)
-                templates[template.name] = template
+                pending_templates.append((template_file, template))
+                all_fonts.update(_extract_fonts_from_template(template))
         except Exception as e:
             # Log but don't fail on individual template errors
-            print(f"Warning: Failed to load template {template_file}: {e}")
+            logger.warning(f"Failed to load template {template_file}: {e}")
+
+    # Download missing Google Fonts if enabled
+    if download_google_fonts and fonts_dir and all_fonts:
+        fonts_dir.mkdir(parents=True, exist_ok=True)
+        _download_missing_fonts(all_fonts, fonts_dir)
+
+    # Second pass: validate fonts and add templates
+    for _template_file, template in pending_templates:
+        # Only validate fonts for image engine templates
+        from labelable.models.template import EngineType
+
+        if template.engine == EngineType.IMAGE and fonts_dir:
+            missing_fonts = _validate_template_fonts(template, fonts_dir)
+            if missing_fonts:
+                logger.error(
+                    f"Template '{template.name}' requires missing fonts: {', '.join(missing_fonts)}. Skipping template."
+                )
+                continue
+
+        templates[template.name] = template
 
     return templates
+
+
+def _download_missing_fonts(fonts: set[str], fonts_dir: Path) -> None:
+    """Download missing fonts from Google Fonts.
+
+    Args:
+        fonts: Set of font names to check/download.
+        fonts_dir: Directory to store downloaded fonts.
+    """
+    from labelable.templates.fonts import FontManager
+    from labelable.templates.google_fonts import (
+        ensure_google_fonts,
+        get_font_family_from_name,
+    )
+
+    font_manager = FontManager(custom_paths=[fonts_dir])
+
+    # Collect Google Font families to download
+    families_to_download: set[str] = set()
+    for font_name in fonts:
+        # Check if font is already available
+        if font_manager._find_font(font_name) is not None:
+            continue
+
+        # Try to determine Google Font family name
+        family = get_font_family_from_name(font_name)
+        if family:
+            families_to_download.add(family)
+
+    if not families_to_download:
+        return
+
+    # Download missing fonts
+    try:
+        downloaded = ensure_google_fonts(list(families_to_download), fonts_dir)
+        if downloaded:
+            logger.info(f"Downloaded Google Font families: {', '.join(downloaded)}")
+            # Clear font manager cache so it finds new fonts
+            font_manager.clear_cache()
+    except Exception as e:
+        logger.error(f"Failed to download Google Fonts: {e}")
 
 
 async def discover_ha_printers() -> list[PrinterConfig]:

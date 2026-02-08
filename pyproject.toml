@@ -17,6 +17,10 @@ dependencies = [
     "pillow>=11.0.0",
     "python-multipart>=0.0.9",
     "aiohttp>=3.9.0",
+    "qrcode[pil]>=7.4.0",
+    "pylibdmtx>=0.1.10",
+    "setuptools>=80.10.2",
+    "fonttools>=4.61.1",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +34,7 @@ dev = [
 
 [project.scripts]
 labelable = "labelable.__main__:main"
+labelable-render = "labelable.cli.render:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -48,3 +53,19 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.37.4",
+]
+
+[tool.basedpyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["src"]
+exclude = ["**/__pycache__", "**/node_modules"]
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false

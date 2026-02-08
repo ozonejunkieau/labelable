@@ -345,6 +345,7 @@ def set_app_state(
     templates: dict,
     queue: Any,
     jinja_engine: Any,
+    image_engine: Any = None,
     user_mapping: dict[str, str] | None = None,
     default_user: str = "",
     templates_path: Any = None,
@@ -354,6 +355,7 @@ def set_app_state(
     _app_state["templates"] = templates
     _app_state["queue"] = queue
     _app_state["jinja_engine"] = jinja_engine
+    _app_state["image_engine"] = image_engine
     _app_state["user_mapping"] = user_mapping or {}
     _app_state["default_user"] = default_user
     _app_state["templates_path"] = templates_path
@@ -544,7 +546,7 @@ async def printers_page() -> list[AnyComponent]:
 @router.get("/api/reload-templates", response_model=FastUI, response_model_exclude_none=True)
 @router.post("/api/reload-templates", response_model=FastUI, response_model_exclude_none=True)
 async def reload_templates() -> list[AnyComponent]:
-    """Reload templates from disk."""
+    """Reload templates from disk and refresh printer status."""
     import logging
 
     from labelable.config import load_templates
@@ -567,6 +569,12 @@ async def reload_templates() -> list[AnyComponent]:
             logger.info(f"  Loaded template '{name}' with supported_printers={tmpl.supported_printers}")
     else:
         message = "Templates path not configured."
+
+    # Refresh printer status cache
+    printers = _app_state.get("printers", {})
+    for printer in printers.values():
+        printer.invalidate_cache()
+    logger.info(f"Invalidated status cache for {len(printers)} printer(s)")
 
     components: list[AnyComponent] = [
         c.Heading(text="Templates Reloaded", level=2),
@@ -787,6 +795,11 @@ async def submit_print(
     queue = _app_state.get("queue")
     jinja_engine = _app_state.get("jinja_engine")
 
+    if queue is None:
+        raise HTTPException(status_code=500, detail="Print queue not initialized")
+    if jinja_engine is None:
+        raise HTTPException(status_code=500, detail="Template engine not initialized")
+
     if template_name not in templates:
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
 
@@ -828,11 +841,21 @@ async def submit_print(
             ),
         )
 
-    printer = printers[printer_name]
+    printer_obj = printers[printer_name]
 
-    # Render template
+    # Render template using the appropriate engine
+    from labelable.models.template import EngineType
+
     try:
-        rendered = jinja_engine.render(template, form_data)
+        if template.engine == EngineType.IMAGE:
+            image_engine = _app_state.get("image_engine")
+            if not image_engine:
+                raise RuntimeError("Image engine not initialized")
+            # Determine output format from printer type
+            output_format = printer_obj.config.type.value  # "zpl" or "epl2"
+            rendered = image_engine.render(template, form_data, output_format=output_format)
+        else:
+            rendered = jinja_engine.render(template, form_data)
     except Exception as e:
         return _page_wrapper(
             c.Heading(text="Error", level=2),
@@ -854,7 +877,7 @@ async def submit_print(
         rendered_content=rendered,
     )
 
-    is_online = await printer.is_online()
+    is_online = await printer_obj.is_online()
     await queue.submit(job)
 
     if is_online:
@@ -911,7 +934,7 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
         if field.type == FieldType.USER:
             continue  # Auto-populates from request context
 
-        field_type: type
+        field_type: Any
         if field.type == FieldType.INTEGER:
             field_type = int
         elif field.type == FieldType.FLOAT:

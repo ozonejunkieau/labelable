@@ -18,7 +18,7 @@ test:
 
 # Run tests with coverage
 test-cov:
-    uv run pytest --cov=labelable --cov-report=term-missing
+    uv run pytest --cov=src/labelable --cov-report=term-missing
 
 # Lint code
 lint:
@@ -29,9 +29,13 @@ fmt:
     uv run ruff format src tests
     uv run ruff check --fix src tests
 
-# Type check (if mypy is added later)
-# typecheck:
-#     uv run mypy src
+# Type check with basedpyright
+typecheck:
+    uv run basedpyright src
+
+# Render a template preview (usage: just render templates/example.yaml -d field=value)
+render *args:
+    uv run labelable-render {{args}}
 
 # Build docker image
 build:

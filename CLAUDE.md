@@ -43,10 +43,24 @@ src/labelable/
 │   ├── zpl.py          # Zebra ZPL (TCP/serial/HA)
 │   ├── epl2.py         # Zebra EPL2 (TCP/serial/HA)
 │   └── ptouch.py       # Brother P-Touch (stubbed)
-├── templates/          # Template engine
+├── templates/          # Template engines
 │   ├── engine.py       # Abstract TemplateEngine
-│   ├── jinja_engine.py # Jinja2 implementation
-│   └── bitmap_engine.py# PIL-based (stubbed)
+│   ├── jinja_engine.py # Jinja2 implementation (raw ZPL/EPL2)
+│   ├── image_engine.py # PIL-based image rendering
+│   ├── elements/       # Element renderers for image engine
+│   │   ├── base.py     # BaseElementRenderer ABC
+│   │   ├── text.py     # Text with wrap/scale/circle-aware
+│   │   ├── qrcode.py   # QR code via qrcode library
+│   │   └── datamatrix.py # DataMatrix via pylibdmtx
+│   ├── converters/     # Bitmap format converters
+│   │   ├── zpl.py      # Image → ZPL ^GFA command
+│   │   └── epl2.py     # Image → EPL2 GW command
+│   ├── fonts/          # Font management
+│   │   └── __init__.py # FontManager class
+│   ├── font_manifest.py # Font metadata extraction
+│   └── google_fonts.py # Google Fonts downloader
+├── cli/                # CLI tools
+│   └── render.py       # labelable-render preview tool
 └── api/
     ├── routes.py       # REST API endpoints
     └── ui.py           # FastUI web interface
@@ -147,7 +161,9 @@ printers: []
 
 ### Template Files (templates/*.yaml)
 
-Templates are YAML files with Jinja2 content for generating printer commands.
+Templates are YAML files supporting two engines:
+- `jinja` (default): Raw ZPL/EPL2 commands with Jinja2 templating
+- `image`: Visual element-based rendering with PIL (supports QR codes, DataMatrix, text wrapping)
 
 **Supported field types:**
 - `string` - Text input
@@ -158,10 +174,11 @@ Templates are YAML files with Jinja2 content for generating printer commands.
 - `datetime` - Auto-populated with current timestamp (uses `format` for strftime)
 - `user` - Auto-populated from Home Assistant user (via `X-Remote-User-Display-Name` header)
 
-Example template:
+**Jinja Engine Example:**
 ```yaml
 name: leftovers
 description: Food container label
+engine: jinja  # Optional, this is the default
 dimensions:
   width_mm: 40
   height_mm: 28
@@ -174,19 +191,61 @@ fields:
   - name: gluten_free
     type: boolean
     default: false
-  - name: caution
-    type: select
-    options: ["", "DOG FOOD", "Spicy"]
-  - name: created_at
-    type: datetime
-    format: "%Y-%m-%d %H:%M"
-  - name: created_by
-    type: user
 template: |
   ^XA
   ^FO50,50^FD{{ name }}^FS
   {% if gluten_free %}^FD!!! GF !!!^FS{% endif %}
   ^XZ
+```
+
+**Image Engine Example:**
+```yaml
+name: jar-label
+description: Circular label for mason jars
+engine: image
+shape: circle  # or rectangle (default)
+dimensions:
+  diameter_mm: 50  # For circles; use width_mm/height_mm for rectangles
+dpi: 203  # Printer DPI (default 203)
+label_offset_x_mm: 2.3  # Horizontal offset for label alignment
+label_offset_y_mm: 0.0  # Vertical offset
+darkness: 15  # Print darkness 0-30 (ZPL ~SD command)
+supported_printers:
+  - zpl
+fields:
+  - name: title
+    type: string
+    required: true
+  - name: code
+    type: string
+    required: true
+elements:
+  - type: text
+    field: title
+    bounds:
+      x_mm: 5
+      y_mm: 5
+      width_mm: 40
+      height_mm: 12
+    font: DejaVuSans-Bold
+    font_size: 24
+    alignment: center
+    vertical_align: middle
+    auto_scale: true
+    circle_aware: true  # Adjusts wrapping for circular labels
+
+  - type: qrcode
+    field: code
+    x_mm: 25  # Center position
+    y_mm: 35
+    size_mm: 16
+    error_correction: M  # L, M, Q, or H
+
+  - type: datamatrix
+    field: code
+    x_mm: 25
+    y_mm: 35
+    size_mm: 12
 ```
 
 ## Key Design Patterns
@@ -274,6 +333,69 @@ Note: Replace `localhost:7979` with the add-on's internal hostname if accessing 
 - `A` - ASCII text
 - `B` - Barcode
 - `P` - Print label
+
+## CLI Tools
+
+### labelable-render
+
+Preview image templates without a printer:
+
+```bash
+# Basic usage
+uv run labelable-render templates/my-template.yaml -o preview.png
+
+# With field values
+uv run labelable-render templates/jar-label.yaml \
+  -d title="Honey" \
+  -d code="HONEY-001" \
+  -o preview.png
+
+# With JSON data file
+uv run labelable-render templates/jar-label.yaml \
+  --json data.json \
+  -o preview.png
+
+# Output as ZPL/EPL2 instead of PNG
+uv run labelable-render templates/jar-label.yaml \
+  --format zpl \
+  -d title="Test" \
+  -o output.zpl
+
+# Download missing Google Fonts automatically
+uv run labelable-render templates/my-template.yaml \
+  --download-fonts \
+  -o preview.png
+```
+
+## Font Management
+
+The image engine searches for fonts in this order:
+1. Font manifest (maps font names to files based on TTF metadata)
+2. Custom paths (from template `font_paths` or app config)
+3. System fonts
+4. PIL default font (fallback)
+
+### Google Fonts
+
+Enable automatic downloading in config:
+```yaml
+download_google_fonts: true
+fonts_dir: ./fonts  # Where to save downloaded fonts
+```
+
+Or use the CLI flag `--download-fonts`.
+
+Fonts are downloaded on-demand when a template references a font not found locally. A manifest file (`fonts/.font-manifest.json`) caches font metadata for fast lookup.
+
+## Type Checking
+
+This project uses [basedpyright](https://github.com/DetachHead/basedpyright) for static type checking:
+
+```bash
+uv run basedpyright src/
+```
+
+Configuration is in `pyproject.toml` under `[tool.basedpyright]`.
 
 ## Adding a New Printer Type
 

@@ -5,7 +5,12 @@ A general purpose label printing API and web UI for home use.
 ## Features
 
 - **Multiple Printer Support**: Zebra ZPL, Zebra EPL2, and Brother P-Touch (future)
-- **Template System**: Define label templates in YAML with Jinja2 templating
+- **Two Template Engines**:
+  - **Jinja**: Raw ZPL/EPL2 commands with Jinja2 templating
+  - **Image**: Visual element-based rendering with QR codes, DataMatrix, text wrapping
+- **Label Shapes**: Rectangle and circle support with circle-aware text layout
+- **Label Preview**: CLI tool to preview templates as PNG before printing
+- **Google Fonts**: Automatic font downloading for image templates
 - **REST API**: Print labels programmatically from Home Assistant or other systems
 - **Web UI**: Simple browser-based interface for manual label printing
 - **Print Queue**: Automatic queuing when printers are offline
@@ -77,15 +82,18 @@ printers:
 
 Create label templates in `templates/`. Files starting with `_` are ignored (use for examples).
 
-See `templates/_example.yaml` for a complete example with all field types.
+### Jinja Engine (Default)
+
+For raw ZPL/EPL2 commands with Jinja2 templating:
 
 ```yaml
 name: shipping-label
 description: Basic shipping address label
+engine: jinja  # Optional, this is the default
 dimensions:
   width_mm: 100
   height_mm: 50
-supported_printers:  # Printer names from your config.yaml
+supported_printers:
   - warehouse-zpl
 fields:
   - name: name
@@ -98,9 +106,58 @@ template: |
   ^XA
   ^FO50,50^A0N,30,30^FD{{ name }}^FS
   ^FO50,100^A0N,20,20^FD{{ printed_at }}^FS
-  ^FO50,130^SN1,1,N^FD of {{ quantity }}^FS
   ^PQ{{ quantity }}
   ^XZ
+```
+
+### Image Engine
+
+For visual element-based labels with QR codes, DataMatrix, and advanced text features:
+
+```yaml
+name: jar-label
+description: Circular label for mason jars
+engine: image
+shape: circle
+dimensions:
+  diameter_mm: 50
+dpi: 203
+label_offset_x_mm: 2.3  # Fine-tune label positioning
+supported_printers:
+  - zpl-printer
+fields:
+  - name: title
+    type: string
+    required: true
+  - name: code
+    type: string
+elements:
+  - type: text
+    field: title
+    bounds: { x_mm: 5, y_mm: 8, width_mm: 40, height_mm: 15 }
+    font: DejaVuSans-Bold
+    font_size: 28
+    alignment: center
+    auto_scale: true
+    circle_aware: true
+
+  - type: qrcode
+    field: code
+    x_mm: 25
+    y_mm: 32
+    size_mm: 16
+    error_correction: M
+```
+
+### Preview Templates
+
+Use the CLI to preview image templates:
+
+```bash
+uv run labelable-render templates/jar-label.yaml \
+  -d title="Honey" -d code="H001" \
+  --download-fonts \
+  -o preview.png
 ```
 
 ### Field Types
@@ -260,8 +317,7 @@ Planned features for future releases:
 
 - **Brother P-Touch Support**: Bitmap-based printing for Brother P-Touch label makers
 - **Print History**: Track recently printed labels with reprint functionality
-- **Label Preview**: Visual preview of labels before printing
-- **QR Code Fields**: Built-in QR code generation in templates
+- **Web UI Preview**: In-browser label preview (CLI preview available now)
 
 ## About
 

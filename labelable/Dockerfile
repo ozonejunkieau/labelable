@@ -5,7 +5,9 @@ FROM ${BUILD_FROM}
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    py3-wheel
+    py3-wheel \
+    libdmtx \
+    ttf-dejavu
 
 # Set working directory
 WORKDIR /app

@@ -1,0 +1,57 @@
+name: example-image
+description: Example image template with text and QR code
+engine: image
+shape: rectangle
+dimensions:
+  width_mm: 50
+  height_mm: 25
+dpi: 203
+supported_printers:
+  - zpl-printer
+
+fields:
+  - name: title
+    type: string
+    required: true
+    description: Main title text
+  - name: subtitle
+    type: string
+    required: false
+    default: ""
+    description: Optional subtitle
+  - name: code
+    type: string
+    required: true
+    description: Content for QR code
+
+elements:
+  - type: text
+    field: title
+    bounds:
+      x_mm: 2
+      y_mm: 2
+      width_mm: 30
+      height_mm: 10
+    font_size: 24
+    alignment: left
+    vertical_align: middle
+    auto_scale: true
+
+  - type: text
+    field: subtitle
+    bounds:
+      x_mm: 2
+      y_mm: 13
+      width_mm: 30
+      height_mm: 8
+    font_size: 12
+    alignment: left
+    vertical_align: top
+    wrap: true
+
+  - type: qrcode
+    field: code
+    x_mm: 41
+    y_mm: 12.5
+    size_mm: 14
+    error_correction: M

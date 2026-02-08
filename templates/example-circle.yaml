@@ -1,0 +1,57 @@
+name: example-circle
+description: Circular label example for mason jars
+engine: image
+shape: circle
+dimensions:
+  diameter_mm: 50
+dpi: 203
+supported_printers:
+  - zpl-printer
+
+fields:
+  - name: title
+    type: string
+    required: true
+    description: Product name
+  - name: description
+    type: string
+    required: false
+    default: ""
+    description: Short description
+  - name: code
+    type: string
+    required: true
+    description: QR code content
+
+elements:
+  - type: text
+    field: title
+    bounds:
+      x_mm: 5
+      y_mm: 5
+      width_mm: 40
+      height_mm: 12
+    font_size: 24
+    alignment: center
+    vertical_align: middle
+    auto_scale: true
+    circle_aware: true
+
+  - type: text
+    field: description
+    bounds:
+      x_mm: 5
+      y_mm: 18
+      width_mm: 40
+      height_mm: 10
+    font_size: 14
+    alignment: center
+    wrap: true
+    circle_aware: true
+
+  - type: qrcode
+    field: code
+    x_mm: 25
+    y_mm: 38
+    size_mm: 16
+    error_correction: M

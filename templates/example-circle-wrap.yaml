@@ -1,0 +1,63 @@
+name: example-circle-wrap
+description: Circular label demonstrating text wrapping
+engine: image
+shape: circle
+dimensions:
+  diameter_mm: 50
+dpi: 300
+label_offset_x_mm: 29.3
+label_offset_y_mm: 0
+darkness: 20
+supported_printers:
+  - zpl-printer
+
+fields:
+  - name: title
+    type: string
+    required: true
+    description: Product name
+  - name: description
+    type: string
+    required: true
+    description: Product description (will wrap to fit)
+  - name: code
+    type: string
+    required: false
+    default: ""
+    description: QR code content
+
+elements:
+  - type: text
+    field: title
+    bounds:
+      x_mm: 5
+      y_mm: 8
+      width_mm: 40
+      height_mm: 14
+    font_size: 44
+    font: PlaywriteNZ-Regular
+    alignment: center
+    vertical_align: middle
+    wrap: true
+    circle_aware: true
+
+  - type: text
+    field: description
+    bounds:
+      x_mm: 3
+      y_mm: 24
+      width_mm: 44
+      height_mm: 22
+    font_size: 18
+    font: PlaywriteNZ-Regular
+    alignment: center
+    vertical_align: top
+    wrap: true
+    circle_aware: true
+
+  - type: qrcode
+    field: code
+    x_mm: 25
+    y_mm: 25
+    size_mm: 20
+    error_correction: M

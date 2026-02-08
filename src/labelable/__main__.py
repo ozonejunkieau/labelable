@@ -1,6 +1,7 @@
 """Entry point for running Labelable as a module."""
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -9,8 +10,36 @@ import uvicorn
 from labelable.config import load_config, settings
 
 
+def _setup_macos_library_path() -> None:
+    """Set up library path for macOS Homebrew installations.
+
+    pylibdmtx requires libdmtx to be findable. On macOS with Homebrew,
+    the library is installed to /opt/homebrew/lib (Apple Silicon) or
+    /usr/local/lib (Intel), but these aren't in the default search path.
+    """
+    if sys.platform != "darwin":
+        return
+
+    if os.environ.get("DYLD_LIBRARY_PATH"):
+        return  # Already set by user
+
+    # Check common Homebrew library locations
+    homebrew_paths = [
+        Path("/opt/homebrew/lib"),  # Apple Silicon
+        Path("/usr/local/lib"),  # Intel
+    ]
+
+    for lib_path in homebrew_paths:
+        if (lib_path / "libdmtx.dylib").exists():
+            os.environ["DYLD_LIBRARY_PATH"] = str(lib_path)
+            return
+
+
 def main() -> int:
     """Run the Labelable server."""
+    # Set up macOS library path for pylibdmtx
+    _setup_macos_library_path()
+
     # Configure logging
     log_level = logging.DEBUG if settings.debug else logging.INFO
     logging.basicConfig(

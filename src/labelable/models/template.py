@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,11 +22,112 @@ class FieldType(StrEnum):
     SELECT = "select"  # Enum/select with predefined options
 
 
+class EngineType(StrEnum):
+    """Template engine types."""
+
+    JINJA = "jinja"
+    IMAGE = "image"
+
+
+class LabelShape(StrEnum):
+    """Label shape types."""
+
+    RECTANGLE = "rectangle"
+    CIRCLE = "circle"
+
+
+class HorizontalAlignment(StrEnum):
+    """Horizontal text alignment."""
+
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+
+
+class VerticalAlignment(StrEnum):
+    """Vertical text alignment."""
+
+    TOP = "top"
+    MIDDLE = "middle"
+    BOTTOM = "bottom"
+
+
+class ErrorCorrectionLevel(StrEnum):
+    """QR code error correction levels."""
+
+    L = "L"  # ~7% correction
+    M = "M"  # ~15% correction
+    Q = "Q"  # ~25% correction
+    H = "H"  # ~30% correction
+
+
+class BoundingBox(BaseModel):
+    """Bounding box for element positioning in millimeters."""
+
+    x_mm: float
+    y_mm: float
+    width_mm: float
+    height_mm: float
+
+
+class TextElement(BaseModel):
+    """Text element for image templates."""
+
+    type: Literal["text"] = "text"
+    field: str | None = None  # Field name to render (mutually exclusive with static_text)
+    static_text: str | None = None  # Static text to render
+    bounds: BoundingBox
+    font: str = "DejaVuSans"
+    font_size: int = 14
+    alignment: HorizontalAlignment = HorizontalAlignment.LEFT
+    vertical_align: VerticalAlignment = VerticalAlignment.TOP
+    wrap: bool = False
+    auto_scale: bool = False
+    circle_aware: bool = False
+
+
+class QRCodeElement(BaseModel):
+    """QR code element for image templates.
+
+    Position is specified by center coordinates (x_mm, y_mm) and size_mm.
+    The QR code will be centered at (x_mm, y_mm).
+    """
+
+    type: Literal["qrcode"] = "qrcode"
+    field: str
+    x_mm: float  # Center X position
+    y_mm: float  # Center Y position
+    size_mm: float  # Size (QR codes are always square)
+    error_correction: ErrorCorrectionLevel = ErrorCorrectionLevel.M
+
+
+class DataMatrixElement(BaseModel):
+    """DataMatrix element for image templates.
+
+    Position is specified by center coordinates (x_mm, y_mm) and size_mm.
+    The DataMatrix will be centered at (x_mm, y_mm).
+    """
+
+    type: Literal["datamatrix"] = "datamatrix"
+    field: str
+    x_mm: float  # Center X position
+    y_mm: float  # Center Y position
+    size_mm: float  # Size (DataMatrix codes are always square)
+
+
+# Union type with discriminator for element parsing
+LabelElement = Annotated[
+    TextElement | QRCodeElement | DataMatrixElement,
+    Field(discriminator="type"),
+]
+
+
 class LabelDimensions(BaseModel):
     """Label dimensions in millimeters."""
 
-    width_mm: float
-    height_mm: float
+    width_mm: float = 0.0
+    height_mm: float = 0.0
+    diameter_mm: float | None = None  # For circular labels
 
 
 class TemplateField(BaseModel):
@@ -49,8 +150,22 @@ class TemplateConfig(BaseModel):
     dimensions: LabelDimensions
     supported_printers: list[str] = Field(default_factory=list)  # Printer names from config
     fields: list[TemplateField] = Field(default_factory=list)
-    template: str  # Jinja2 template content
+    template: str | None = None  # Jinja2 template content (required for jinja engine)
     quantity: int | None = None  # Fixed quantity - if set, user cannot change it
+
+    # Image engine fields
+    engine: EngineType = EngineType.JINJA
+    shape: LabelShape = LabelShape.RECTANGLE
+    dpi: int = 203  # Default DPI for thermal printers
+    elements: list[LabelElement] = Field(default_factory=list)
+    font_paths: list[str] = Field(default_factory=list)  # Additional font search paths
+
+    # Label positioning (for centering on media)
+    label_offset_x_mm: float = 0.0  # Horizontal offset in mm
+    label_offset_y_mm: float = 0.0  # Vertical offset in mm
+
+    # Print settings
+    darkness: int | None = None  # Print darkness 0-30 (ZPL ~SD command)
 
     def get_field(self, name: str) -> TemplateField | None:
         """Get a field by name."""

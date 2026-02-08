@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from labelable.models.job import JobStatus, PrintJob
 from labelable.models.printer import PrinterType
-from labelable.models.template import TemplateConfig, TemplateField
+from labelable.models.template import EngineType, TemplateConfig, TemplateField
 
 router = APIRouter(prefix="/api/v1", tags=["api"])
 
@@ -22,6 +22,7 @@ def set_app_state(
     templates: dict,
     queue: Any,
     jinja_engine: Any,
+    image_engine: Any = None,
     api_key: str | None = None,
 ) -> None:
     """Set application state references for the routes."""
@@ -29,6 +30,7 @@ def set_app_state(
     _app_state["templates"] = templates
     _app_state["queue"] = queue
     _app_state["jinja_engine"] = jinja_engine
+    _app_state["image_engine"] = image_engine
     _app_state["api_key"] = api_key
 
 
@@ -201,6 +203,11 @@ async def print_label(template_name: str, request: PrintRequest) -> PrintRespons
     queue = _app_state.get("queue")
     jinja_engine = _app_state.get("jinja_engine")
 
+    if queue is None:
+        raise HTTPException(status_code=500, detail="Print queue not initialized")
+    if jinja_engine is None:
+        raise HTTPException(status_code=500, detail="Template engine not initialized")
+
     # Validate template
     if template_name not in templates:
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
@@ -237,9 +244,17 @@ async def print_label(template_name: str, request: PrintRequest) -> PrintRespons
     # Add quantity to context for template use (e.g., "1 of {{ quantity }}")
     render_context = {**request.data, "quantity": request.quantity}
 
-    # Render template
+    # Render template using the appropriate engine
     try:
-        rendered = jinja_engine.render(template, render_context)
+        if template.engine == EngineType.IMAGE:
+            image_engine = _app_state.get("image_engine")
+            if not image_engine:
+                raise HTTPException(status_code=500, detail="Image engine not initialized")
+            # Determine output format from printer type
+            output_format = printer.config.type.value  # "zpl" or "epl2"
+            rendered = image_engine.render(template, render_context, output_format=output_format)
+        else:
+            rendered = jinja_engine.render(template, render_context)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Template rendering failed: {e}") from e
 
@@ -280,6 +295,8 @@ async def print_label(template_name: str, request: PrintRequest) -> PrintRespons
 async def get_job_status(job_id: str) -> PrintResponse:
     """Get the status of a print job."""
     queue = _app_state.get("queue")
+    if queue is None:
+        raise HTTPException(status_code=500, detail="Print queue not initialized")
     job = queue.get_job(job_id)
 
     if not job:

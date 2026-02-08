@@ -56,6 +56,10 @@ class JinjaTemplateEngine(BaseTemplateEngine):
             # Validate context against template fields
             validated_context = template.validate_data(context)
 
+            # Check that template has jinja content
+            if template.template is None:
+                raise TemplateError("Jinja engine requires 'template' field in template config")
+
             # Compile and render the template
             jinja_template = self._env.from_string(template.template)
             rendered = jinja_template.render(**validated_context)

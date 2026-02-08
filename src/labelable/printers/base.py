@@ -55,6 +55,11 @@ class BasePrinter(ABC):
         self._cache_time = time.monotonic()
         self._last_checked = datetime.now()
 
+    def invalidate_cache(self) -> None:
+        """Invalidate the cached online status, forcing a fresh check."""
+        self._cached_online = None
+        self._cache_time = 0.0
+
     @property
     def last_checked(self) -> datetime | None:
         """Get the absolute time of the last status check."""

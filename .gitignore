@@ -51,9 +51,24 @@ htmlcov/
 # Local configuration (user-specific, use config.example.yaml as template)
 /config.yaml
 
-# User templates (keep example template starting with underscore)
+# User templates (keep example templates)
 templates/*.yaml
 !templates/_example.yaml
+!templates/example-image.yaml
+!templates/example-circle.yaml
+!templates/example-circle-wrap.yaml
+!templates/example-google-font.yaml
+
+# Downloaded fonts
+templates/fonts/
+config/fonts/
+
+# Test output
+test-output/
+test.png
+
+# Local test scripts
+print_label.py
 
 # OS
 .DS_Store

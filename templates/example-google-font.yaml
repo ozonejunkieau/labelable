@@ -1,0 +1,30 @@
+name: example-google-font
+description: Example using Google Fonts (Roboto)
+engine: image
+shape: rectangle
+dimensions:
+  width_mm: 50
+  height_mm: 25
+dpi: 203
+supported_printers:
+  - zpl-printer
+
+fields:
+  - name: title
+    type: string
+    required: true
+    description: Main title
+
+elements:
+  - type: text
+    field: title
+    bounds:
+      x_mm: 2
+      y_mm: 5
+      width_mm: 46
+      height_mm: 15
+    font: PlaywriteNZ-Regular
+    font_size: 24
+    alignment: center
+    vertical_align: middle
+    auto_scale: true

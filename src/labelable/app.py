@@ -11,6 +11,7 @@ from labelable.api import ui as ui_routes
 from labelable.config import AppConfig, load_config_async, load_templates, settings
 from labelable.printers import BasePrinter, create_printer
 from labelable.queue import PrintQueue
+from labelable.templates.image_engine import ImageTemplateEngine
 from labelable.templates.jinja_engine import JinjaTemplateEngine
 
 
@@ -41,28 +42,41 @@ _printers: dict[str, BasePrinter] = {}
 _templates: dict = {}
 _queue: PrintQueue | None = None
 _jinja_engine: JinjaTemplateEngine | None = None
+_image_engine: ImageTemplateEngine | None = None
 _config: AppConfig | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
-    global _printers, _templates, _queue, _jinja_engine, _config
+    global _printers, _templates, _queue, _jinja_engine, _image_engine, _config
 
     # Load configuration (with optional HA auto-discovery)
     logger.info(f"Loading configuration from {settings.config_file}")
     _config = await load_config_async(settings.config_file)
+
+    # Resolve fonts directory
+    fonts_path = Path(_config.fonts_dir)
+    if not fonts_path.is_absolute():
+        fonts_path = settings.config_file.parent / fonts_path
+    if _config.download_google_fonts:
+        logger.info(f"Google Fonts downloading enabled, fonts dir: {fonts_path}")
 
     # Load templates
     templates_path = Path(_config.templates_dir)
     if not templates_path.is_absolute():
         templates_path = settings.config_file.parent / templates_path
     logger.info(f"Loading templates from {templates_path}")
-    _templates = load_templates(templates_path)
+    _templates = load_templates(
+        templates_path,
+        fonts_dir=fonts_path,
+        download_google_fonts=_config.download_google_fonts,
+    )
     logger.info(f"Loaded {len(_templates)} templates")
 
-    # Initialize template engine
+    # Initialize template engines
     _jinja_engine = JinjaTemplateEngine()
+    _image_engine = ImageTemplateEngine(custom_font_paths=[str(fonts_path)] if fonts_path.exists() else None)
 
     # Initialize print queue
     _queue = PrintQueue(timeout_seconds=_config.queue_timeout_seconds)
@@ -84,12 +98,13 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to initialize printer {printer_config.name}: {e}")
 
     # Set state for routes
-    api_routes.set_app_state(_printers, _templates, _queue, _jinja_engine, api_key=_config.api_key)
+    api_routes.set_app_state(_printers, _templates, _queue, _jinja_engine, _image_engine, api_key=_config.api_key)
     ui_routes.set_app_state(
         _printers,
         _templates,
         _queue,
         _jinja_engine,
+        _image_engine,
         user_mapping=_config.user_mapping,
         default_user=_config.default_user,
         templates_path=templates_path,
