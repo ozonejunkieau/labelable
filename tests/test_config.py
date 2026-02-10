@@ -29,17 +29,17 @@ class TestLoadTemplates:
             with open(template_path, "w") as f:
                 yaml.dump(template_yaml, f)
 
-            templates = load_templates(Path(tmpdir))
+            result = load_templates(Path(tmpdir))
 
-            assert "test-template" in templates
-            assert templates["test-template"].name == "test-template"
-            assert templates["test-template"].description == "Test template"
+            assert "test-template" in result.templates
+            assert result.templates["test-template"].name == "test-template"
+            assert result.templates["test-template"].description == "Test template"
 
     def test_load_templates_empty_directory(self):
         """Load templates from an empty directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            templates = load_templates(Path(tmpdir))
-            assert templates == {}
+            result = load_templates(Path(tmpdir))
+            assert result.templates == {}
 
     def test_load_templates_skips_invalid_yaml(self):
         """Skip files with invalid YAML."""
@@ -58,11 +58,11 @@ class TestLoadTemplates:
             with open(valid_path, "w") as f:
                 yaml.dump(valid_yaml, f)
 
-            templates = load_templates(Path(tmpdir))
+            result = load_templates(Path(tmpdir))
 
             # Should only have the valid template
-            assert "valid-template" in templates
-            assert "invalid" not in templates
+            assert "valid-template" in result.templates
+            assert "invalid" not in result.templates
 
     def test_load_templates_skips_non_yaml_files(self):
         """Skip non-YAML files."""
@@ -81,10 +81,10 @@ class TestLoadTemplates:
             with open(valid_path, "w") as f:
                 yaml.dump(valid_yaml, f)
 
-            templates = load_templates(Path(tmpdir))
+            result = load_templates(Path(tmpdir))
 
-            assert len(templates) == 1
-            assert "test-template" in templates
+            assert len(result.templates) == 1
+            assert "test-template" in result.templates
 
     def test_load_templates_uses_filename_as_name(self):
         """Use filename as template name if not specified."""
@@ -101,10 +101,10 @@ class TestLoadTemplates:
             with open(template_path, "w") as f:
                 yaml.dump(template_yaml, f)
 
-            templates = load_templates(Path(tmpdir))
+            result = load_templates(Path(tmpdir))
 
             # Template is stored by its explicit name
-            assert "explicit-name" in templates
+            assert "explicit-name" in result.templates
 
     def test_load_templates_image_engine(self):
         """Load template with image engine."""
@@ -128,15 +128,51 @@ class TestLoadTemplates:
             with open(template_path, "w") as f:
                 yaml.dump(template_yaml, f)
 
-            templates = load_templates(Path(tmpdir))
+            result = load_templates(Path(tmpdir))
 
-            assert "image-template" in templates
-            assert templates["image-template"].engine == EngineType.IMAGE
+            assert "image-template" in result.templates
+            assert result.templates["image-template"].engine == EngineType.IMAGE
 
     def test_load_templates_nonexistent_directory(self):
         """Handle nonexistent directory gracefully."""
-        templates = load_templates(Path("/nonexistent/path"))
-        assert templates == {}
+        result = load_templates(Path("/nonexistent/path"))
+        assert result.templates == {}
+
+    def test_load_templates_missing_font_warning(self):
+        """Warn about missing fonts when download_google_fonts is disabled."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fonts_dir = Path(tmpdir) / "fonts"
+            fonts_dir.mkdir()
+
+            # Create image template with non-existent font
+            template_yaml = {
+                "name": "font-test",
+                "engine": "image",
+                "dimensions": {"width_mm": 50, "height_mm": 25},
+                "dpi": 203,
+                "elements": [
+                    {
+                        "type": "text",
+                        "field": "title",
+                        "font": "NonExistentFont",
+                        "bounds": {"x_mm": 0, "y_mm": 0, "width_mm": 50, "height_mm": 25},
+                    }
+                ],
+            }
+
+            template_path = Path(tmpdir) / "font-test.yaml"
+            with open(template_path, "w") as f:
+                yaml.dump(template_yaml, f)
+
+            # Load without download_google_fonts
+            result = load_templates(Path(tmpdir), fonts_dir=fonts_dir, download_google_fonts=False)
+
+            # Template should be skipped
+            assert "font-test" not in result.templates
+            # Should have a warning about missing fonts
+            assert len(result.warnings) == 1
+            assert "NonExistentFont" in result.warnings[0]
+            assert "download_google_fonts" in result.warnings[0]
 
 
 class TestAppConfig:

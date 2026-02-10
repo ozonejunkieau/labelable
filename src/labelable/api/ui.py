@@ -349,6 +349,7 @@ def set_app_state(
     user_mapping: dict[str, str] | None = None,
     default_user: str = "",
     templates_path: Any = None,
+    template_warnings: list[str] | None = None,
 ) -> None:
     """Set application state references for the UI."""
     _app_state["printers"] = printers
@@ -359,6 +360,7 @@ def set_app_state(
     _app_state["user_mapping"] = user_mapping or {}
     _app_state["default_user"] = default_user
     _app_state["templates_path"] = templates_path
+    _app_state["template_warnings"] = template_warnings or []
 
 
 def _page_wrapper(*components: AnyComponent, title: str = "Labelable") -> list[AnyComponent]:
@@ -437,14 +439,33 @@ async def home(request: Request) -> list[AnyComponent]:
     # Build page components
     page_components: list[AnyComponent] = [
         c.Heading(text="Label Templates", level=2),
-        c.Paragraph(text="Select a template to print:"),
-        c.Div(class_name="row", components=template_cards),
-        c.Link(
-            components=[c.Text(text="Reload Templates")],
-            on_click=GoToEvent(url="/reload-templates"),
-            class_name="btn btn-secondary mt-3",
-        ),
     ]
+
+    # Display any template warnings
+    template_warnings = _app_state.get("template_warnings", [])
+    if template_warnings:
+        warning_items = [c.Paragraph(text=w) for w in template_warnings]
+        page_components.append(
+            c.Div(
+                class_name="alert alert-warning",
+                components=[
+                    c.Heading(text="⚠️ Template Warnings", level=5),
+                    *warning_items,
+                ],
+            )
+        )
+
+    page_components.extend(
+        [
+            c.Paragraph(text="Select a template to print:"),
+            c.Div(class_name="row", components=template_cards),
+            c.Link(
+                components=[c.Text(text="Reload Templates")],
+                on_click=GoToEvent(url="/reload-templates"),
+                class_name="btn btn-secondary mt-3",
+            ),
+        ]
+    )
 
     # Add user debug info if enabled
     if settings.show_user_debug:

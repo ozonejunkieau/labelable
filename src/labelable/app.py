@@ -67,12 +67,17 @@ async def lifespan(app: FastAPI):
     if not templates_path.is_absolute():
         templates_path = settings.config_file.parent / templates_path
     logger.info(f"Loading templates from {templates_path}")
-    _templates = load_templates(
+    template_result = load_templates(
         templates_path,
         fonts_dir=fonts_path,
         download_google_fonts=_config.download_google_fonts,
     )
+    _templates = template_result.templates
+    _template_warnings = template_result.warnings
     logger.info(f"Loaded {len(_templates)} templates")
+    if _template_warnings:
+        for warning in _template_warnings:
+            logger.warning(warning)
 
     # Initialize template engines
     _jinja_engine = JinjaTemplateEngine()
@@ -108,6 +113,7 @@ async def lifespan(app: FastAPI):
         user_mapping=_config.user_mapping,
         default_user=_config.default_user,
         templates_path=templates_path,
+        template_warnings=_template_warnings,
     )
 
     logger.info("Labelable startup complete")

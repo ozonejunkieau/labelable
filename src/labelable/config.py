@@ -15,6 +15,13 @@ from labelable.models.template import TemplateConfig
 logger = logging.getLogger(__name__)
 
 
+class TemplateLoadResult(BaseModel):
+    """Result of loading templates, including any warnings."""
+
+    templates: dict[str, TemplateConfig] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class AppConfig(BaseModel):
     """Application configuration loaded from config.yaml."""
 
@@ -111,7 +118,7 @@ def load_templates(
     templates_dir: Path,
     fonts_dir: Path | None = None,
     download_google_fonts: bool = False,
-) -> dict[str, TemplateConfig]:
+) -> TemplateLoadResult:
     """Load all template configurations from the templates directory.
 
     Args:
@@ -120,13 +127,13 @@ def load_templates(
         download_google_fonts: If True, attempt to download missing fonts from Google Fonts.
 
     Returns:
-        Dictionary of template name to TemplateConfig.
+        TemplateLoadResult with templates dict and any warnings.
     """
-    templates: dict[str, TemplateConfig] = {}
+    result = TemplateLoadResult()
     pending_templates: list[tuple[Path, TemplateConfig]] = []
 
     if not templates_dir.exists():
-        return templates
+        return result
 
     # First pass: load all templates and collect font requirements
     all_fonts: set[str] = set()
@@ -159,14 +166,24 @@ def load_templates(
         if template.engine == EngineType.IMAGE and fonts_dir:
             missing_fonts = _validate_template_fonts(template, fonts_dir)
             if missing_fonts:
-                logger.error(
-                    f"Template '{template.name}' requires missing fonts: {', '.join(missing_fonts)}. Skipping template."
-                )
+                fonts_str = ", ".join(missing_fonts)
+                logger.error(f"Template '{template.name}' requires missing fonts: {fonts_str}. Skipping template.")
+                # Add warning for UI if download_google_fonts is not enabled
+                if not download_google_fonts:
+                    result.warnings.append(
+                        f"Template '{template.name}' skipped: missing fonts ({fonts_str}). "
+                        f"Enable 'download_google_fonts: true' in config.yaml to auto-download Google Fonts."
+                    )
+                else:
+                    result.warnings.append(
+                        f"Template '{template.name}' skipped: fonts not available ({fonts_str}). "
+                        f"These may not be valid Google Fonts."
+                    )
                 continue
 
-        templates[template.name] = template
+        result.templates[template.name] = template
 
-    return templates
+    return result
 
 
 def _download_missing_fonts(fonts: set[str], fonts_dir: Path) -> None:
