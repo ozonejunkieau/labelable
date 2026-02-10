@@ -148,6 +148,26 @@ class TestUIRoutes:
         response = client.get("/api/printers")
         assert response.status_code == 200
 
+    def test_reload_templates_returns_template_configs(self, client: TestClient):
+        """Test reload_templates stores TemplateConfig objects, not dicts.
+
+        Regression test: load_templates() returns TemplateLoadResult, and
+        reload_templates must use .templates to get the dict of TemplateConfig.
+        """
+        from labelable.api import ui
+
+        # Call reload_templates endpoint
+        response = client.get("/api/reload-templates")
+        assert response.status_code == 200
+
+        # Verify templates in app state are TemplateConfig objects, not dicts
+        templates = ui._app_state.get("templates", {})
+        for name, template in templates.items():
+            assert hasattr(template, "dimensions"), (
+                f"Template '{name}' is a {type(template).__name__}, not TemplateConfig"
+            )
+            assert hasattr(template, "name"), f"Template '{name}' missing 'name' attribute"
+
     def test_spa_handler_returns_html_with_dark_mode(self, client: TestClient):
         """Test SPA handler returns HTML with dark mode CSS."""
         response = client.get("/")

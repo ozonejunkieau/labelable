@@ -578,13 +578,14 @@ async def reload_templates() -> list[AnyComponent]:
     details: list[str] = []
     if templates_path:
         logger.info(f"Reloading templates from {templates_path}")
-        new_templates = load_templates(templates_path)
+        result = load_templates(templates_path)
         _app_state["templates"].clear()
-        _app_state["templates"].update(new_templates)
-        count = len(new_templates)
+        _app_state["templates"].update(result.templates)
+        _app_state["template_warnings"] = result.warnings
+        count = len(result.templates)
         message = f"Reloaded {count} template{'s' if count != 1 else ''} from {templates_path}"
         # Build details for each template
-        for name, tmpl in new_templates.items():
+        for name, tmpl in result.templates.items():
             printers = ", ".join(tmpl.supported_printers) if tmpl.supported_printers else "(none)"
             details.append(f"{name}: supported_printers=[{printers}]")
             logger.info(f"  Loaded template '{name}' with supported_printers={tmpl.supported_printers}")
