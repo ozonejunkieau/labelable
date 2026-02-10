@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1-dev18
+
+- Add line_spacing property for text elements (multiplier for line height in wrapped text)
+
 ## 0.1.1-dev17
 
 - Fix fonttools dependency at runtime (configure index-strategy in pyproject.toml)
