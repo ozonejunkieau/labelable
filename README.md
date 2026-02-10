@@ -76,6 +76,10 @@ printers:
     healthcheck:
       interval: 60
       command: "~HS"
+
+# Google Fonts auto-download for image templates
+download_google_fonts: true
+fonts_dir: ./fonts
 ```
 
 ## Templates
@@ -140,6 +144,8 @@ elements:
     alignment: center
     auto_scale: true
     circle_aware: true
+    wrap: true
+    line_spacing: 1.3  # Line height multiplier for wrapped text
 
   - type: qrcode
     field: code

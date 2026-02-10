@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.0
+
+### Image Template Engine
+- Add visual element-based label rendering with PIL
+- Support for rectangle and circular label shapes
+- Text elements with word wrapping, auto-scaling, alignment, and circle-aware layout
+- `line_spacing` property for controlling gap between wrapped text lines
+- QR code generation via `qrcode` library
+- DataMatrix barcode generation via `pylibdmtx`
+- Label offset and darkness settings for printer calibration
+
+### Google Fonts Support
+- Auto-download fonts from Google Fonts when `download_google_fonts: true` in config
+- Font manifest for fast lookup of downloaded fonts
+- UI warning when templates are skipped due to missing fonts
+
+### CLI Tools
+- `labelable-render` command for previewing templates as PNG/ZPL/EPL2
+
+### Zebra Printer HA Integration
+- DPI sensor for printer resolution
+- Calibrate Media and Feed Label button entities
+- HACS discovery support via hacs.json
+- Improved EPL2 protocol support and sensor availability
+
+### Fixes
+- Fix HA-connected printers showing offline
+- Fix fonttools dependency for Alpine base images
+- Fix reload_templates crash after refactoring
+
 ## 0.1.1-dev20
 
 - Fix reload_templates crash (AttributeError on template.dimensions)

@@ -233,6 +233,8 @@ elements:
     vertical_align: middle
     auto_scale: true
     circle_aware: true  # Adjusts wrapping for circular labels
+    wrap: true
+    line_spacing: 1.3  # Multiplier for line height (1.0 = normal, 1.5 = 150%)
 
   - type: qrcode
     field: code
