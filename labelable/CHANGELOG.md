@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1-dev20
+
+- Fix reload_templates crash (AttributeError on template.dimensions)
+
 ## 0.1.1-dev19
 
 - Add UI warning when templates are skipped due to missing fonts
