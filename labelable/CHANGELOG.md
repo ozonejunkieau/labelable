@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1-dev19
+
+- Add UI warning when templates are skipped due to missing fonts
+- Fix httpx dependency (move to main dependencies for Google Fonts download)
+
 ## 0.1.1-dev18
 
 - Add line_spacing property for text elements (multiplier for line height in wrapped text)
