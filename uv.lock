@@ -479,13 +479,14 @@ wheels = [
 
 [[package]]
 name = "labelable"
-version = "0.1.1.dev17"
+version = "0.1.1.dev18"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "fastapi" },
     { name = "fastui" },
     { name = "fonttools" },
+    { name = "httpx" },
     { name = "jinja2" },
     { name = "pillow" },
     { name = "pydantic" },
@@ -501,7 +502,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -519,7 +519,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "fastui", specifier = ">=0.7.0" },
     { name = "fonttools", specifier = ">=4.61.1" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
