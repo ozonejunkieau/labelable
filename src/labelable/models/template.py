@@ -84,6 +84,7 @@ class TextElement(BaseModel):
     wrap: bool = False
     auto_scale: bool = False
     circle_aware: bool = False
+    line_spacing: float = 1.0  # Multiplier for line height (1.0 = normal, 1.5 = 150%)
 
 
 class QRCodeElement(BaseModel):

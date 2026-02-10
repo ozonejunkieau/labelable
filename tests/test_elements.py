@@ -236,6 +236,105 @@ class TestTextElementRenderer:
         pixels = list(image.getdata())
         assert 0 in pixels
 
+    def test_line_spacing_default(self, font_manager, template, image_and_draw):
+        """Default line spacing should be 1.0."""
+        element = TextElement(
+            field="title",
+            bounds=BoundingBox(x_mm=2, y_mm=2, width_mm=20, height_mm=20),
+        )
+        assert element.line_spacing == 1.0
+
+    def test_line_spacing_renders_wrapped_text(self, font_manager, template, image_and_draw):
+        """Line spacing should work with wrapped text."""
+        image, draw = image_and_draw
+        renderer = TextElementRenderer(font_manager)
+
+        element = TextElement(
+            field="title",
+            bounds=BoundingBox(x_mm=2, y_mm=2, width_mm=15, height_mm=20),
+            font_size=14,
+            wrap=True,
+            line_spacing=1.5,  # 50% extra space between lines
+        )
+
+        renderer.render(draw, image, element, {"title": "Line one and line two"}, template)
+
+        pixels = list(image.getdata())
+        assert 0 in pixels  # Text was rendered
+
+    def test_line_spacing_increases_gap(self, font_manager, template):
+        """Higher line spacing should result in more vertical space used."""
+        from PIL import Image, ImageDraw
+
+        renderer = TextElementRenderer(font_manager)
+        text = "First line second line"
+
+        # Render with normal spacing
+        img1 = Image.new("1", (200, 200), color=1)
+        draw1 = ImageDraw.Draw(img1)
+        element1 = TextElement(
+            field="title",
+            bounds=BoundingBox(x_mm=2, y_mm=2, width_mm=15, height_mm=30),
+            font_size=14,
+            wrap=True,
+            line_spacing=1.0,
+        )
+        renderer.render(draw1, img1, element1, {"title": text}, template)
+
+        # Render with increased spacing
+        img2 = Image.new("1", (200, 200), color=1)
+        draw2 = ImageDraw.Draw(img2)
+        element2 = TextElement(
+            field="title",
+            bounds=BoundingBox(x_mm=2, y_mm=2, width_mm=15, height_mm=30),
+            font_size=14,
+            wrap=True,
+            line_spacing=2.0,  # Double spacing
+        )
+        renderer.render(draw2, img2, element2, {"title": text}, template)
+
+        # Both should render text
+        pixels1 = list(img1.getdata())
+        pixels2 = list(img2.getdata())
+        assert 0 in pixels1
+        assert 0 in pixels2
+
+        # Find the vertical extent of black pixels in each image
+        def get_vertical_extent(img):
+            width, height = img.size
+            min_y, max_y = height, 0
+            for y in range(height):
+                for x in range(width):
+                    if img.getpixel((x, y)) == 0:
+                        min_y = min(min_y, y)
+                        max_y = max(max_y, y)
+            return max_y - min_y if max_y > min_y else 0
+
+        extent1 = get_vertical_extent(img1)
+        extent2 = get_vertical_extent(img2)
+
+        # With double line spacing, vertical extent should be larger
+        assert extent2 > extent1
+
+    def test_line_spacing_with_auto_scale(self, font_manager, template, image_and_draw):
+        """Line spacing should work together with auto-scale."""
+        image, draw = image_and_draw
+        renderer = TextElementRenderer(font_manager)
+
+        element = TextElement(
+            field="title",
+            bounds=BoundingBox(x_mm=2, y_mm=2, width_mm=20, height_mm=15),
+            font_size=48,
+            wrap=True,
+            auto_scale=True,
+            line_spacing=1.3,
+        )
+
+        renderer.render(draw, image, element, {"title": "Auto scale with spacing"}, template)
+
+        pixels = list(image.getdata())
+        assert 0 in pixels
+
 
 class TestQRCodeElementRenderer:
     """Tests for QRCodeElementRenderer."""

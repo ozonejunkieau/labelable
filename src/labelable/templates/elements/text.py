@@ -72,14 +72,23 @@ class TextElementRenderer(BaseElementRenderer):
         else:
             lines = [text]
 
-        # Calculate total text height
+        # Calculate total text height with line spacing
         line_heights = []
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             line_heights.append(bbox[3] - bbox[1])
 
-        total_height = sum(line_heights)
-        line_spacing = max(line_heights) if line_heights else font_size
+        # Apply line spacing multiplier
+        spacing_multiplier = element.line_spacing
+        base_line_height = max(line_heights) if line_heights else font_size
+        spaced_line_height = int(base_line_height * spacing_multiplier)
+
+        # Total height accounts for spacing between lines
+        if len(line_heights) > 1:
+            spacing_extra = int((len(line_heights) - 1) * base_line_height * (spacing_multiplier - 1))
+            total_height = sum(line_heights) + spacing_extra
+        else:
+            total_height = sum(line_heights)
 
         # Calculate vertical starting position
         if element.vertical_align == VerticalAlignment.MIDDLE:
@@ -92,7 +101,7 @@ class TextElementRenderer(BaseElementRenderer):
         # Draw each line
         for i, line in enumerate(lines):
             if not line.strip():
-                current_y += line_spacing
+                current_y += spaced_line_height
                 continue
 
             # Calculate available width for this line (circle-aware)
@@ -143,7 +152,8 @@ class TextElementRenderer(BaseElementRenderer):
                     )
 
             draw.text((line_x, current_y), line, font=font, fill="black")
-            current_y += line_heights[i]
+            # Apply line spacing for next line
+            current_y += int(line_heights[i] * spacing_multiplier)
 
     def _find_optimal_font_size(
         self,
