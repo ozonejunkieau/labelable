@@ -164,6 +164,26 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         margin-bottom: 2rem;
       }}
 
+      /* Hidden form fields - show only the submit button */
+      .hidden-form-fields form {{
+        margin-bottom: 0;
+      }}
+      .hidden-form-fields form > div:not(:last-child) {{
+        display: none;
+      }}
+      .hidden-form-fields form > div:last-child {{
+        margin-top: 0;
+      }}
+      .hidden-form-fields form button[type="submit"] {{
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+        color: #fff;
+      }}
+      .hidden-form-fields form button[type="submit"]:hover {{
+        background-color: #0b5ed7;
+        border-color: #0a58ca;
+      }}
+
       /* Footer styling - high contrast override */
       footer {{
         margin-top: 2rem;
@@ -317,8 +337,9 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         .fastui-react-select__indicator:hover {{
           color: #f8f9fa !important;
         }}
-        /* Footer dark mode - bright blue for visibility */
+        /* Footer dark mode */
         footer {{
+          background-color: #212529;
           border-top-color: #495057;
         }}
         footer a,
@@ -326,13 +347,13 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         footer .nav-link,
         footer .nav-link.text-muted,
         footer * {{
-          color: #6ea8fe !important;
+          color: #f8f9fa !important;
         }}
         footer a:hover,
         footer a.text-muted:hover,
         footer .nav-link:hover,
         footer .nav-link.text-muted:hover {{
-          color: #9ec5fe !important;
+          color: #6ea8fe !important;
         }}
       }}
     </style>
@@ -1046,30 +1067,46 @@ async def preview_label(
     # Create a model for the hidden print form
     HiddenPrintModel = _create_hidden_form_model(hidden_fields, quantity)
 
-    # Build preview page
+    # Build clean, focused preview page
+    # The form fields are hidden via CSS (hidden-form-fields class)
+    quantity_text = f"Quantity: {quantity}" if quantity > 1 else ""
+
     return _page_wrapper(
-        c.Heading(text=f"Preview: {template.name}", level=2),
-        c.Paragraph(text=f"Quantity: {quantity}"),
-        c.Image(
-            src=f"data:image/png;base64,{b64_image}",
-            alt=f"Preview of {template.name}",
-            class_name="img-fluid border rounded my-3",
-        ),
+        c.Heading(text="Label Preview", level=2),
+        # Centered image container
         c.Div(
-            class_name="d-flex gap-3 mb-3",
+            class_name="text-center my-4",
             components=[
-                c.Link(
-                    components=[c.Text(text="<- Back to Form")],
-                    on_click=GoToEvent(url=f"/print/{template_name}"),
-                    class_name="btn btn-secondary",
+                c.Image(
+                    src=f"data:image/png;base64,{b64_image}",
+                    alt=f"Preview of {template.name}",
+                    class_name="img-fluid border rounded",
                 ),
             ],
         ),
-        c.Heading(text="Print this label?", level=4),
-        c.ModelForm(
-            model=HiddenPrintModel,
-            submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
-            display_mode="inline",
+        # Quantity (only shown if > 1)
+        *([c.Paragraph(text=quantity_text, class_name="text-center text-muted")] if quantity > 1 else []),
+        # Button row: Back and Print side by side
+        c.Div(
+            class_name="d-flex justify-content-center gap-3 mt-4",
+            components=[
+                c.Link(
+                    components=[c.Text(text="Back")],
+                    on_click=GoToEvent(url=f"/print/{template_name}"),
+                    class_name="btn btn-secondary",
+                ),
+                # Hidden form with just the Print button visible
+                c.Div(
+                    class_name="hidden-form-fields",
+                    components=[
+                        c.ModelForm(
+                            model=HiddenPrintModel,
+                            submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
+                            display_mode="inline",
+                        ),
+                    ],
+                ),
+            ],
         ),
         title=f"Preview - {template.name}",
     )

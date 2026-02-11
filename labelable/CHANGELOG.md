@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1-dev3
+
+- Improve preview page UX
+  - Clean, focused layout with centered image
+  - Back and Print buttons side by side
+  - Hide form fields, show only Print button
+  - Only show quantity when > 1
+- Fix footer dark mode styling (proper background and text colors)
+
 ## 0.2.1-dev2
 
 - Fix FastUI form serialization error on preview page
