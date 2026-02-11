@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1-dev1
+
+- Add image preview for labels using the image template engine
+  - Preview page shows rendered PNG before printing
+  - "Back to Form" and "Print" buttons on preview page
+  - Auto-populated fields (datetime, user) handled correctly
+
 ## 0.2.0
 
 ### Image Template Engine

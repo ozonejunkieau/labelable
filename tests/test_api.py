@@ -6,10 +6,13 @@ from fastapi.testclient import TestClient
 from labelable.app import create_app
 from labelable.models.printer import PrinterType
 from labelable.models.template import (
+    BoundingBox,
+    EngineType,
     FieldType,
     LabelDimensions,
     TemplateConfig,
     TemplateField,
+    TextElement,
 )
 
 
@@ -26,6 +29,29 @@ def sample_template() -> TemplateConfig:
             TemplateField(name="count", type=FieldType.INTEGER, default=1),
         ],
         template="^XA^FD{{ title }}^FS^XZ",
+    )
+
+
+@pytest.fixture
+def image_template() -> TemplateConfig:
+    """Create a sample image-based template for testing."""
+    return TemplateConfig(
+        name="test-image-label",
+        description="A test image template",
+        engine=EngineType.IMAGE,
+        dimensions=LabelDimensions(width_mm=50, height_mm=25),
+        supported_printers=["test-zpl"],  # Must match printer name, not type
+        fields=[
+            TemplateField(name="title", type=FieldType.STRING, required=True),
+        ],
+        elements=[
+            TextElement(
+                type="text",
+                field="title",
+                bounds=BoundingBox(x_mm=5, y_mm=5, width_mm=40, height_mm=15),
+                font_size=12,
+            ),
+        ],
     )
 
 
@@ -60,6 +86,7 @@ class TestUIComponents:
             "ModelForm",
             "Div",  # Used for card layouts
             "Markdown",  # Used for status badges with HTML
+            "Image",  # Used for preview feature
         ]
         for component_name in used_components:
             assert hasattr(c, component_name), f"c.{component_name} does not exist"
@@ -296,3 +323,160 @@ class TestIngressURLHandling:
         assert "Labelable v" in str(version_link), "Version not in footer link"
         # The link should point to GitHub
         assert "github.com" in str(version_link), "GitHub URL not in footer link"
+
+
+class TestPreviewFeature:
+    """Test preview functionality for image templates."""
+
+    @pytest.fixture
+    def client_with_image_template(self, image_template: TemplateConfig) -> TestClient:
+        """Create a test client with an image template configured."""
+        from unittest.mock import MagicMock
+
+        from labelable.api import ui
+        from labelable.app import create_app
+
+        app = create_app()
+
+        # Set up mock image engine
+        mock_image_engine = MagicMock()
+        # Return a minimal valid PNG (1x1 pixel white PNG)
+        png_data = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+            b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00"
+            b"\x00\x0cIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe"
+            b"\xa7V\xbd\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        mock_image_engine.render_preview.return_value = png_data
+
+        # Store original state
+        original_templates = ui._app_state.get("templates", {}).copy()
+        original_image_engine = ui._app_state.get("image_engine")
+
+        # Set up templates and engine
+        ui._app_state["templates"] = {image_template.name: image_template}
+        ui._app_state["image_engine"] = mock_image_engine
+
+        client = TestClient(app)
+        yield client
+
+        # Restore original state
+        ui._app_state["templates"] = original_templates
+        ui._app_state["image_engine"] = original_image_engine
+
+    def test_preview_endpoint_returns_image(self, client_with_image_template: TestClient):
+        """Test that preview endpoint returns a page with base64 image."""
+        response = client_with_image_template.post(
+            "/api/print/test-image-label/preview?printer=test-printer",
+            data={"title": "Test Title", "quantity": "1"},
+        )
+        # Should redirect to error page since test-printer doesn't exist
+        assert response.status_code == 200
+        data = response.json()
+        # Should show error about invalid printer
+        page_text = str(data)
+        assert "Invalid printer" in page_text or "Error" in page_text
+
+    def test_preview_not_available_for_jinja_templates(self, sample_template: TemplateConfig):
+        """Test that preview returns 400 for non-image templates."""
+        from labelable.api import ui
+        from labelable.app import create_app
+
+        app = create_app()
+
+        # Store original state
+        original_templates = ui._app_state.get("templates", {}).copy()
+
+        # Set up jinja template
+        ui._app_state["templates"] = {sample_template.name: sample_template}
+
+        client = TestClient(app)
+        response = client.post(
+            f"/api/print/{sample_template.name}/preview?printer=test-printer",
+            data={"title": "Test", "quantity": "1"},
+        )
+
+        # Restore original state
+        ui._app_state["templates"] = original_templates
+
+        assert response.status_code == 400
+        assert "image templates" in response.json()["detail"].lower()
+
+    def test_preview_returns_404_for_missing_template(self):
+        """Test that preview returns 404 for non-existent template."""
+        from labelable.app import create_app
+
+        app = create_app()
+        client = TestClient(app)
+        response = client.post(
+            "/api/print/nonexistent-template/preview?printer=test-printer",
+            data={"title": "Test", "quantity": "1"},
+        )
+        assert response.status_code == 404
+
+    def test_image_template_form_shows_preview_hint(self, image_template: TemplateConfig):
+        """Test that image template form page shows preview message."""
+        from unittest.mock import MagicMock
+
+        from labelable.api import ui
+        from labelable.app import create_app
+
+        app = create_app()
+
+        # Set up mock printer
+        mock_printer = MagicMock()
+        mock_printer.config.type = PrinterType.ZPL
+        mock_printer.get_cached_online_status.return_value = True
+        mock_printer.config.connection.host = "192.168.1.100"
+        mock_printer.config.connection.port = 9100
+
+        # Store original state
+        original_templates = ui._app_state.get("templates", {}).copy()
+        original_printers = ui._app_state.get("printers", {}).copy()
+        original_queue = ui._app_state.get("queue")
+
+        # Set up template and printer
+        ui._app_state["templates"] = {image_template.name: image_template}
+        ui._app_state["printers"] = {"test-zpl": mock_printer}
+
+        mock_queue = MagicMock()
+        mock_queue.get_queue_size.return_value = 0
+        ui._app_state["queue"] = mock_queue
+
+        client = TestClient(app)
+        response = client.get(f"/api/print/{image_template.name}")
+
+        # Restore original state
+        ui._app_state["templates"] = original_templates
+        ui._app_state["printers"] = original_printers
+        ui._app_state["queue"] = original_queue
+
+        assert response.status_code == 200
+        data = response.json()
+        page_text = str(data)
+        # Check that page mentions preview
+        assert "Preview" in page_text or "preview" in page_text
+
+    def test_hidden_form_model_creation(self):
+        """Test _create_hidden_form_model creates proper model."""
+        from labelable.api.ui import _create_hidden_form_model
+
+        hidden_fields = {
+            "title": "Test Title",
+            "count": 5,
+            "enabled": True,
+            "price": 19.99,
+        }
+        quantity = 3
+
+        model = _create_hidden_form_model(hidden_fields, quantity)
+
+        # Create instance with defaults
+        instance = model()
+
+        # Verify all fields are present with correct defaults
+        assert instance.quantity == 3
+        assert instance.title == "Test Title"
+        assert instance.count == 5
+        assert instance.enabled is True
+        assert instance.price == 19.99

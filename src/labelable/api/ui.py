@@ -1,5 +1,7 @@
 """FastUI web interface for Labelable."""
 
+import base64
+from datetime import datetime
 from importlib.metadata import version
 from typing import Any
 
@@ -10,6 +12,8 @@ from fastui.components.display import DisplayLookup
 from fastui.events import GoToEvent, PageEvent
 from pydantic import BaseModel, Field
 from starlette.responses import HTMLResponse
+
+from labelable.models.template import EngineType, FieldType
 
 router = APIRouter()
 
@@ -736,13 +740,29 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
             # Show fixed quantity if set
             if template.quantity is not None:
                 form_components.append(c.Paragraph(text=f"Quantity: {template.quantity} (fixed)"))
-            form_components.append(
-                c.ModelForm(
-                    model=_create_form_model(template, None),
-                    submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
-                    display_mode="default",
-                ),
-            )
+            # For image templates, submit to preview endpoint first
+            if template.engine == EngineType.IMAGE:
+                form_components.append(
+                    c.Paragraph(
+                        text="Preview will be shown before printing.",
+                        class_name="text-muted small",
+                    ),
+                )
+                form_components.append(
+                    c.ModelForm(
+                        model=_create_form_model(template, None),
+                        submit_url=f"{api_root}/print/{template_name}/preview?printer={printer_name}",
+                        display_mode="default",
+                    ),
+                )
+            else:
+                form_components.append(
+                    c.ModelForm(
+                        model=_create_form_model(template, None),
+                        submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
+                        display_mode="default",
+                    ),
+                )
         else:
             form_components = [
                 c.Heading(text="Print", level=4),
@@ -750,13 +770,29 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
             # Show fixed quantity if set
             if template.quantity is not None:
                 form_components.append(c.Paragraph(text=f"Quantity: {template.quantity} (fixed)"))
-            form_components.append(
-                c.ModelForm(
-                    model=_create_form_model(template, compatible_printers),
-                    submit_url=f"{api_root}/print/{template_name}/submit",
-                    display_mode="default",
-                ),
-            )
+            # For image templates, submit to preview endpoint first
+            if template.engine == EngineType.IMAGE:
+                form_components.append(
+                    c.Paragraph(
+                        text="Preview will be shown before printing.",
+                        class_name="text-muted small",
+                    ),
+                )
+                form_components.append(
+                    c.ModelForm(
+                        model=_create_form_model(template, compatible_printers),
+                        submit_url=f"{api_root}/print/{template_name}/preview",
+                        display_mode="default",
+                    ),
+                )
+            else:
+                form_components.append(
+                    c.ModelForm(
+                        model=_create_form_model(template, compatible_printers),
+                        submit_url=f"{api_root}/print/{template_name}/submit",
+                        display_mode="default",
+                    ),
+                )
 
     return _page_wrapper(
         *template_info,
@@ -843,8 +879,6 @@ async def submit_print(
         quantity = int(form_data.pop("quantity", 1))
 
     # Populate USER fields from request context
-    from labelable.models.template import FieldType
-
     current_user = _resolve_user(request)
     for field in template.fields:
         if field.type == FieldType.USER:
@@ -866,8 +900,6 @@ async def submit_print(
     printer_obj = printers[printer_name]
 
     # Render template using the appropriate engine
-    from labelable.models.template import EngineType
-
     try:
         if template.engine == EngineType.IMAGE:
             image_engine = _app_state.get("image_engine")
@@ -924,6 +956,158 @@ async def submit_print(
     )
 
 
+@router.post(
+    "/api/print/{template_name}/preview",
+    response_model=FastUI,
+    response_model_exclude_none=True,
+)
+async def preview_label(
+    request: Request,
+    template_name: str,
+    printer: str | None = None,
+) -> list[AnyComponent]:
+    """Show label preview with option to print."""
+    # Get API root URL for form submission
+    root_path = request.scope.get("root_path", "")
+    api_root = f"{root_path}/api" if root_path else "/api"
+
+    templates = _app_state.get("templates", {})
+    printers = _app_state.get("printers", {})
+
+    template = templates.get(template_name)
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
+
+    if template.engine != EngineType.IMAGE:
+        raise HTTPException(status_code=400, detail="Preview is only available for image templates")
+
+    # Parse form data
+    form_raw = await request.form()
+    form_data: dict[str, Any] = {}
+    for key, value in form_raw.items():
+        form_data[key] = value
+
+    # Extract printer name and quantity
+    printer_name = printer or form_data.pop("printer", None)
+    if template.quantity is not None:
+        quantity = template.quantity
+        form_data.pop("quantity", None)
+    else:
+        quantity = int(form_data.pop("quantity", 1))
+
+    if not printer_name or printer_name not in printers:
+        return _page_wrapper(
+            c.Heading(text="Error", level=2),
+            c.Paragraph(text="Invalid printer selected."),
+            c.Link(
+                components=[c.Text(text="<- Try again")],
+                on_click=GoToEvent(url=f"/print/{template_name}"),
+            ),
+        )
+
+    # Handle auto-populated fields
+    for field in template.fields:
+        if field.type == FieldType.DATETIME:
+            form_data[field.name] = datetime.now().strftime(field.format or "%Y-%m-%d %H:%M")
+        elif field.type == FieldType.USER:
+            form_data[field.name] = _resolve_user(request)
+
+    # Add quantity to context for template use
+    form_data["quantity"] = quantity
+
+    # Render preview image
+    image_engine = _app_state.get("image_engine")
+    if not image_engine:
+        raise HTTPException(status_code=500, detail="Image engine not initialized")
+
+    try:
+        png_bytes = image_engine.render_preview(template, form_data)
+    except Exception as e:
+        return _page_wrapper(
+            c.Heading(text="Preview Error", level=2),
+            c.Paragraph(text=f"Failed to render preview: {e}"),
+            c.Link(
+                components=[c.Text(text="<- Try again")],
+                on_click=GoToEvent(url=f"/print/{template_name}"),
+            ),
+            title=f"Preview Error - {template.name}",
+        )
+
+    # Convert to base64 data URL
+    b64_image = base64.b64encode(png_bytes).decode("ascii")
+
+    # Build hidden form fields for printing
+    # We need to pass all form data to the print endpoint
+    hidden_fields: dict[str, Any] = {}
+    for key, value in form_data.items():
+        if key != "quantity":  # quantity handled separately
+            hidden_fields[key] = value
+
+    # Create a model for the hidden print form
+    HiddenPrintModel = _create_hidden_form_model(hidden_fields, quantity)
+
+    # Build preview page
+    return _page_wrapper(
+        c.Heading(text=f"Preview: {template.name}", level=2),
+        c.Paragraph(text=f"Quantity: {quantity}"),
+        c.Image(
+            src=f"data:image/png;base64,{b64_image}",
+            alt=f"Preview of {template.name}",
+            class_name="img-fluid border rounded my-3",
+        ),
+        c.Div(
+            class_name="d-flex gap-3 mb-3",
+            components=[
+                c.Link(
+                    components=[c.Text(text="<- Back to Form")],
+                    on_click=GoToEvent(url=f"/print/{template_name}"),
+                    class_name="btn btn-secondary",
+                ),
+            ],
+        ),
+        c.Heading(text="Print this label?", level=4),
+        c.ModelForm(
+            model=HiddenPrintModel,
+            submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
+            display_mode="inline",
+        ),
+        title=f"Preview - {template.name}",
+    )
+
+
+def _create_hidden_form_model(hidden_fields: dict[str, Any], quantity: int) -> type[BaseModel]:
+    """Create a Pydantic model with hidden field values for the print form.
+
+    Args:
+        hidden_fields: Dictionary of field name -> value to include.
+        quantity: The quantity value.
+
+    Returns:
+        A Pydantic model class with the values as defaults.
+    """
+    fields: dict[str, Any] = {}
+
+    # Add quantity field (hidden via default)
+    fields["quantity"] = (int, Field(default=quantity, title="Quantity"))
+
+    # Add all hidden fields
+    for name, value in hidden_fields.items():
+        if isinstance(value, bool):
+            fields[name] = (bool, Field(default=value, json_schema_extra={"type": "hidden"}))
+        elif isinstance(value, int):
+            fields[name] = (int, Field(default=value, json_schema_extra={"type": "hidden"}))
+        elif isinstance(value, float):
+            fields[name] = (float, Field(default=value, json_schema_extra={"type": "hidden"}))
+        else:
+            fields[name] = (str, Field(default=str(value) if value else "", json_schema_extra={"type": "hidden"}))
+
+    # Create dynamic model
+    annotations = {k: v[0] for k, v in fields.items()}
+    defaults = {k: v[1] for k, v in fields.items()}
+    model = type("HiddenPrintForm", (BaseModel,), {"__annotations__": annotations, **defaults})
+    return model
+
+
 def _create_form_model(template, compatible_printers: list[tuple[str, str]] | None) -> type[BaseModel]:
     """Create a dynamic Pydantic model for the template form.
 
@@ -933,8 +1117,6 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
             or None if printer is passed via query param (single printer case)
     """
     from enum import Enum
-
-    from labelable.models.template import FieldType
 
     fields: dict[str, Any] = {}
 
