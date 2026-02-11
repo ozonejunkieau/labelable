@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1-dev2
+
+- Fix FastUI form serialization error on preview page
+  - Remove invalid json_schema_extra that broke FastUI's JSON schema parsing
+
 ## 0.2.1-dev1
 
 - Add image preview for labels using the image template engine

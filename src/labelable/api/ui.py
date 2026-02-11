@@ -1076,7 +1076,10 @@ async def preview_label(
 
 
 def _create_hidden_form_model(hidden_fields: dict[str, Any], quantity: int) -> type[BaseModel]:
-    """Create a Pydantic model with hidden field values for the print form.
+    """Create a Pydantic model with pre-filled field values for the print form.
+
+    The fields are shown with their default values pre-filled so the user
+    can simply click Submit to print with the previewed data.
 
     Args:
         hidden_fields: Dictionary of field name -> value to include.
@@ -1087,19 +1090,22 @@ def _create_hidden_form_model(hidden_fields: dict[str, Any], quantity: int) -> t
     """
     fields: dict[str, Any] = {}
 
-    # Add quantity field (hidden via default)
+    # Add quantity field with default
     fields["quantity"] = (int, Field(default=quantity, title="Quantity"))
 
-    # Add all hidden fields
+    # Add all fields with their values as defaults
+    # Note: We can't use json_schema_extra={"type": "hidden"} as it breaks
+    # FastUI's JSON schema parsing which expects valid JSON schema types
     for name, value in hidden_fields.items():
+        title = name.replace("_", " ").title()
         if isinstance(value, bool):
-            fields[name] = (bool, Field(default=value, json_schema_extra={"type": "hidden"}))
+            fields[name] = (bool, Field(default=value, title=title))
         elif isinstance(value, int):
-            fields[name] = (int, Field(default=value, json_schema_extra={"type": "hidden"}))
+            fields[name] = (int, Field(default=value, title=title))
         elif isinstance(value, float):
-            fields[name] = (float, Field(default=value, json_schema_extra={"type": "hidden"}))
+            fields[name] = (float, Field(default=value, title=title))
         else:
-            fields[name] = (str, Field(default=str(value) if value else "", json_schema_extra={"type": "hidden"}))
+            fields[name] = (str, Field(default=str(value) if value else "", title=title))
 
     # Create dynamic model
     annotations = {k: v[0] for k, v in fields.items()}

@@ -480,3 +480,33 @@ class TestPreviewFeature:
         assert instance.count == 5
         assert instance.enabled is True
         assert instance.price == 19.99
+
+    def test_hidden_form_model_works_with_fastui_model_form(self):
+        """Test that hidden form model can be used with FastUI ModelForm.
+
+        Regression test: json_schema_extra with type="hidden" breaks FastUI
+        because it overrides the JSON schema type field.
+        """
+        from fastui import components as c
+
+        from labelable.api.ui import _create_hidden_form_model
+
+        hidden_fields = {
+            "title": "Gluten Free Flour",
+            "count": 5,
+        }
+        quantity = 1
+
+        model = _create_hidden_form_model(hidden_fields, quantity)
+
+        # This should not raise an error - FastUI needs valid JSON schema types
+        form = c.ModelForm(
+            model=model,
+            submit_url="/api/test/submit",
+            display_mode="inline",
+        )
+
+        # Serialize to JSON to trigger the schema generation that was failing
+        form_json = form.model_dump_json()
+        assert "title" in form_json
+        assert "quantity" in form_json
