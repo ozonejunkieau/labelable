@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1-dev4
+
+- Fix preview page Print button not appearing
+  - Use explicit Button component with form trigger
+  - Completely hide the form (positioned off-screen)
+
 ## 0.2.1-dev3
 
 - Improve preview page UX

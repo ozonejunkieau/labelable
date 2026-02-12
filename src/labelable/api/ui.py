@@ -164,24 +164,11 @@ href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/
         margin-bottom: 2rem;
       }}
 
-      /* Hidden form fields - show only the submit button */
-      .hidden-form-fields form {{
-        margin-bottom: 0;
-      }}
-      .hidden-form-fields form > div:not(:last-child) {{
-        display: none;
-      }}
-      .hidden-form-fields form > div:last-child {{
-        margin-top: 0;
-      }}
-      .hidden-form-fields form button[type="submit"] {{
-        background-color: #0d6efd;
-        border-color: #0d6efd;
-        color: #fff;
-      }}
-      .hidden-form-fields form button[type="submit"]:hover {{
-        background-color: #0b5ed7;
-        border-color: #0a58ca;
+      /* Hidden form - completely invisible, triggered by external button */
+      .hidden-form-fields {{
+        position: absolute;
+        left: -9999px;
+        visibility: hidden;
       }}
 
       /* Footer styling - high contrast override */
@@ -1095,16 +1082,21 @@ async def preview_label(
                     on_click=GoToEvent(url=f"/print/{template_name}"),
                     class_name="btn btn-secondary",
                 ),
-                # Hidden form with just the Print button visible
-                c.Div(
-                    class_name="hidden-form-fields",
-                    components=[
-                        c.ModelForm(
-                            model=HiddenPrintModel,
-                            submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
-                            display_mode="inline",
-                        ),
-                    ],
+                c.Button(
+                    text="Print",
+                    on_click=PageEvent(name="print-form"),
+                    class_name="btn btn-primary",
+                ),
+            ],
+        ),
+        # Hidden form - triggered by Print button above
+        c.Div(
+            class_name="hidden-form-fields",
+            components=[
+                c.ModelForm(
+                    model=HiddenPrintModel,
+                    submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
+                    submit_trigger=PageEvent(name="print-form"),
                 ),
             ],
         ),
