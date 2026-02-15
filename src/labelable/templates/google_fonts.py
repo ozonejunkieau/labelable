@@ -205,10 +205,15 @@ def get_font_family_from_name(font_name: str) -> str | None:
 
     # Convert CamelCase to spaces for Google Fonts API
     # e.g., "OpenSans" -> "Open Sans", "FiraCode" -> "Fira Code"
+    # Handle acronyms: "PTSans" -> "PT Sans" (space before uppercase followed by lowercase)
     spaced_name = ""
     for i, char in enumerate(base_name):
-        if i > 0 and char.isupper() and base_name[i - 1].islower():
-            spaced_name += " "
+        if i > 0 and char.isupper():
+            prev_lower = base_name[i - 1].islower()
+            # Insert space if: prev is lowercase OR (prev is upper AND next is lowercase)
+            next_lower = i + 1 < len(base_name) and base_name[i + 1].islower()
+            if prev_lower or (base_name[i - 1].isupper() and next_lower):
+                spaced_name += " "
         spaced_name += char
 
     return spaced_name if spaced_name else None

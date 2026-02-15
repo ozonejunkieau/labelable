@@ -1,5 +1,5 @@
 name: Labelable
-version: "0.2.1-dev4"
+version: "0.2.1-dev5"
 slug: labelable
 description: Label printing API and UI for thermal printers (Zebra ZPL/EPL2)
 url: https://github.com/ozonejunkieau/labelable

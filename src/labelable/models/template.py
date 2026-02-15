@@ -92,6 +92,7 @@ class QRCodeElement(BaseModel):
 
     Position is specified by center coordinates (x_mm, y_mm) and size_mm.
     The QR code will be centered at (x_mm, y_mm).
+    Use prefix/suffix to build URLs: content = prefix + field_value + suffix
     """
 
     type: Literal["qrcode"] = "qrcode"
@@ -100,6 +101,8 @@ class QRCodeElement(BaseModel):
     y_mm: float  # Center Y position
     size_mm: float  # Size (QR codes are always square)
     error_correction: ErrorCorrectionLevel = ErrorCorrectionLevel.M
+    prefix: str = ""  # Prepended to field value (e.g., "https://example.com/")
+    suffix: str = ""  # Appended to field value
 
 
 class DataMatrixElement(BaseModel):
@@ -107,6 +110,7 @@ class DataMatrixElement(BaseModel):
 
     Position is specified by center coordinates (x_mm, y_mm) and size_mm.
     The DataMatrix will be centered at (x_mm, y_mm).
+    Use prefix/suffix to build URLs: content = prefix + field_value + suffix
     """
 
     type: Literal["datamatrix"] = "datamatrix"
@@ -114,11 +118,30 @@ class DataMatrixElement(BaseModel):
     x_mm: float  # Center X position
     y_mm: float  # Center Y position
     size_mm: float  # Size (DataMatrix codes are always square)
+    prefix: str = ""  # Prepended to field value
+    suffix: str = ""  # Appended to field value
+
+
+class Code128Element(BaseModel):
+    """Code 128 linear barcode element for image templates.
+
+    Position is specified by center coordinates (x_mm, y_mm).
+    Width is determined by content and module_width_mm.
+    """
+
+    type: Literal["code128"] = "code128"
+    field: str
+    x_mm: float  # Center X position
+    y_mm: float  # Center Y position
+    height_mm: float  # Barcode height
+    module_width_mm: float = 0.3  # Width of narrowest bar (default ~0.3mm for 203dpi)
+    prefix: str = ""  # Prepended to field value
+    suffix: str = ""  # Appended to field value
 
 
 # Union type with discriminator for element parsing
 LabelElement = Annotated[
-    TextElement | QRCodeElement | DataMatrixElement,
+    TextElement | QRCodeElement | DataMatrixElement | Code128Element,
     Field(discriminator="type"),
 ]
 

@@ -18,7 +18,7 @@ class TestFontManager:
 
         # Should return a font object (either TrueType or default)
         assert font is not None
-        assert isinstance(font, (ImageFont.FreeTypeFont, ImageFont.ImageFont))
+        assert isinstance(font, ImageFont.FreeTypeFont | ImageFont.ImageFont)
 
     def test_get_font_caches_result(self):
         """Getting the same font twice should return cached result."""

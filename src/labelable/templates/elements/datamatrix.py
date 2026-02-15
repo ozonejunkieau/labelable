@@ -37,10 +37,12 @@ class DataMatrixElementRenderer(BaseElementRenderer):
             logger.warning("Cannot render DataMatrix - pylibdmtx library not installed")
             return
 
-        # Get data from context
-        data = str(context.get(element.field, ""))
-        if not data:
+        # Get data from context and apply prefix/suffix
+        field_value = str(context.get(element.field, ""))
+        if not field_value:
             return
+
+        data = f"{element.prefix}{field_value}{element.suffix}"
 
         from pylibdmtx import pylibdmtx
 

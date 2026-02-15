@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1-dev5
+
+- Add Code 128 linear barcode element for image templates
+  - New `code128` element type with `height_mm` and `module_width_mm` options
+  - Support for `prefix` and `suffix` on barcode content
+  - Regression tests for barcode dimensions and module width preservation
+- Add `prefix` and `suffix` options to QR code and DataMatrix elements
+- Fix Google Fonts name extraction for acronyms (e.g., "PTSans" → "PT Sans")
+- Add `python-barcode` dependency
+
 ## 0.2.1-dev4
 
 - Fix preview page Print button not appearing

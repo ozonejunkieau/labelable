@@ -45,10 +45,12 @@ class QRCodeElementRenderer(BaseElementRenderer):
             logger.warning("Cannot render QR code - qrcode library not installed")
             return
 
-        # Get data from context
-        data = str(context.get(element.field, ""))
-        if not data:
+        # Get data from context and apply prefix/suffix
+        field_value = str(context.get(element.field, ""))
+        if not field_value:
             return
+
+        data = f"{element.prefix}{field_value}{element.suffix}"
 
         import qrcode
 

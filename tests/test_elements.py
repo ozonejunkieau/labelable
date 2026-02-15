@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw
 
 from labelable.models.template import (
     BoundingBox,
+    Code128Element,
     DataMatrixElement,
     EngineType,
     ErrorCorrectionLevel,
@@ -17,6 +18,7 @@ from labelable.models.template import (
     VerticalAlignment,
 )
 from labelable.templates.elements import (
+    Code128ElementRenderer,
     DataMatrixElementRenderer,
     QRCodeElementRenderer,
     TextElementRenderer,
@@ -457,3 +459,189 @@ class TestDataMatrixElementRenderer:
         # Image should be all white
         pixels = list(image.getdata())
         assert all(p == 1 for p in pixels)
+
+
+class TestCode128ElementRenderer:
+    """Tests for Code128ElementRenderer."""
+
+    def test_render_code128_dimensions(self, font_manager, template):
+        """Test that Code128 barcode renders with correct dimensions.
+
+        This is a regression test to ensure:
+        1. The barcode height matches the specified height_mm
+        2. The module width is not scaled/distorted
+        """
+        renderer = Code128ElementRenderer(font_manager)
+        image = Image.new("1", (400, 160), color=1)
+        draw = ImageDraw.Draw(image)
+
+        # Known test values
+        height_mm = 5.0
+        module_width_mm = 0.3
+        dpi = 203
+
+        element = Code128Element(
+            field="code",
+            x_mm=25,  # Center in a 50mm wide area
+            y_mm=10,
+            height_mm=height_mm,
+            module_width_mm=module_width_mm,
+        )
+
+        renderer.render(draw, image, element, {"code": "TEST123"}, template)
+
+        # Find the bounding box of rendered content
+        pixels = list(image.getdata())
+        width, height = image.size
+
+        # Find rows with black pixels
+        black_rows = []
+        for row in range(height):
+            row_pixels = pixels[row * width : (row + 1) * width]
+            if any(p == 0 for p in row_pixels):
+                black_rows.append(row)
+
+        assert len(black_rows) > 0, "Barcode should render black pixels"
+
+        # Calculate actual rendered height
+        rendered_height_px = max(black_rows) - min(black_rows) + 1
+
+        # Expected height in pixels (with small tolerance for rounding)
+        expected_height_px = int(height_mm * dpi / 25.4)
+
+        # Allow 2 pixel tolerance for rounding
+        assert abs(rendered_height_px - expected_height_px) <= 2, (
+            f"Barcode height {rendered_height_px}px doesn't match expected "
+            f"{expected_height_px}px for {height_mm}mm at {dpi} DPI"
+        )
+
+    def test_render_code128_module_width_preserved(self, font_manager, template):
+        """Test that module width is preserved and not scaled.
+
+        The narrowest bars in a Code128 barcode should be exactly module_width_mm wide.
+        This test ensures we don't accidentally resize/scale the barcode.
+        """
+        renderer = Code128ElementRenderer(font_manager)
+        image = Image.new("1", (400, 160), color=1)
+        draw = ImageDraw.Draw(image)
+
+        module_width_mm = 0.3
+        dpi = 203
+
+        element = Code128Element(
+            field="code",
+            x_mm=25,
+            y_mm=10,
+            height_mm=5.0,
+            module_width_mm=module_width_mm,
+        )
+
+        renderer.render(draw, image, element, {"code": "A"}, template)
+
+        # Expected module width in pixels
+        expected_module_px = int(module_width_mm * dpi / 25.4)
+
+        # Scan a row in the middle to find bar widths
+        pixels = list(image.getdata())
+        width, height = image.size
+
+        # Find a row with content
+        middle_row = height // 2
+        row_pixels = pixels[middle_row * width : (middle_row + 1) * width]
+
+        # Find runs of black pixels (bars)
+        bar_widths = []
+        current_run = 0
+        in_bar = False
+
+        for p in row_pixels:
+            if p == 0:  # Black pixel
+                if not in_bar:
+                    in_bar = True
+                    current_run = 1
+                else:
+                    current_run += 1
+            else:  # White pixel
+                if in_bar:
+                    bar_widths.append(current_run)
+                    in_bar = False
+                    current_run = 0
+
+        if in_bar:
+            bar_widths.append(current_run)
+
+        assert len(bar_widths) > 0, "Should find bars in barcode"
+
+        # The minimum bar width should be close to the module width
+        min_bar_width = min(bar_widths)
+
+        # Allow 1 pixel tolerance
+        assert abs(min_bar_width - expected_module_px) <= 1, (
+            f"Minimum bar width {min_bar_width}px doesn't match expected module width "
+            f"{expected_module_px}px for {module_width_mm}mm at {dpi} DPI. "
+            f"This may indicate the barcode was scaled/resized."
+        )
+
+    def test_render_code128_empty_data_does_nothing(self, font_manager, template):
+        """Test that empty data doesn't render anything."""
+        renderer = Code128ElementRenderer(font_manager)
+        image = Image.new("1", (400, 160), color=1)
+        draw = ImageDraw.Draw(image)
+
+        element = Code128Element(
+            field="code",
+            x_mm=25,
+            y_mm=10,
+            height_mm=5.0,
+            module_width_mm=0.3,
+        )
+
+        renderer.render(draw, image, element, {"code": ""}, template)
+
+        # Image should be all white
+        pixels = list(image.getdata())
+        assert all(p == 1 for p in pixels)
+
+    def test_render_code128_with_prefix_suffix(self, font_manager, template):
+        """Test that prefix and suffix are applied to barcode content."""
+        renderer = Code128ElementRenderer(font_manager)
+
+        # Create two images - one with prefix/suffix, one without
+        image1 = Image.new("1", (600, 160), color=1)
+        draw1 = ImageDraw.Draw(image1)
+
+        image2 = Image.new("1", (600, 160), color=1)
+        draw2 = ImageDraw.Draw(image2)
+
+        # Element without prefix/suffix
+        element1 = Code128Element(
+            field="code",
+            x_mm=35,
+            y_mm=10,
+            height_mm=5.0,
+            module_width_mm=0.3,
+        )
+
+        # Element with prefix/suffix (should produce different barcode)
+        element2 = Code128Element(
+            field="code",
+            x_mm=35,
+            y_mm=10,
+            height_mm=5.0,
+            module_width_mm=0.3,
+            prefix="PRE-",
+            suffix="-SUF",
+        )
+
+        renderer.render(draw1, image1, element1, {"code": "TEST"}, template)
+        renderer.render(draw2, image2, element2, {"code": "TEST"}, template)
+
+        # The two images should be different (different barcode content)
+        pixels1 = list(image1.getdata())
+        pixels2 = list(image2.getdata())
+
+        # Count black pixels - they should differ due to different content length
+        black1 = sum(1 for p in pixels1 if p == 0)
+        black2 = sum(1 for p in pixels2 if p == 0)
+
+        assert black1 != black2, "Barcode with prefix/suffix should have different content than without"

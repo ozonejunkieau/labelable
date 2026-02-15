@@ -1,6 +1,7 @@
 """Element renderers for image template engine."""
 
 from labelable.templates.elements.base import BaseElementRenderer
+from labelable.templates.elements.code128 import Code128ElementRenderer
 from labelable.templates.elements.datamatrix import DataMatrixElementRenderer
 from labelable.templates.elements.qrcode import QRCodeElementRenderer
 from labelable.templates.elements.text import TextElementRenderer
@@ -10,4 +11,5 @@ __all__ = [
     "TextElementRenderer",
     "QRCodeElementRenderer",
     "DataMatrixElementRenderer",
+    "Code128ElementRenderer",
 ]

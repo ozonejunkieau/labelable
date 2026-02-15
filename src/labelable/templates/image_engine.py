@@ -7,6 +7,7 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from labelable.models.template import (
+    Code128Element,
     DataMatrixElement,
     LabelShape,
     QRCodeElement,
@@ -15,6 +16,7 @@ from labelable.models.template import (
 )
 from labelable.templates.converters import image_to_epl2, image_to_zpl
 from labelable.templates.elements import (
+    Code128ElementRenderer,
     DataMatrixElementRenderer,
     QRCodeElementRenderer,
     TextElementRenderer,
@@ -52,6 +54,7 @@ class ImageTemplateEngine(BaseTemplateEngine):
         self._text_renderer = TextElementRenderer(self._font_manager)
         self._qrcode_renderer = QRCodeElementRenderer(self._font_manager)
         self._datamatrix_renderer = DataMatrixElementRenderer(self._font_manager)
+        self._code128_renderer = Code128ElementRenderer(self._font_manager)
 
     def render(
         self,
@@ -83,6 +86,7 @@ class ImageTemplateEngine(BaseTemplateEngine):
                 self._text_renderer = TextElementRenderer(font_manager)
                 self._qrcode_renderer = QRCodeElementRenderer(font_manager)
                 self._datamatrix_renderer = DataMatrixElementRenderer(font_manager)
+                self._code128_renderer = Code128ElementRenderer(font_manager)
 
             # Create image
             image = self._create_image(template)
@@ -145,6 +149,7 @@ class ImageTemplateEngine(BaseTemplateEngine):
                 self._text_renderer = TextElementRenderer(font_manager)
                 self._qrcode_renderer = QRCodeElementRenderer(font_manager)
                 self._datamatrix_renderer = DataMatrixElementRenderer(font_manager)
+                self._code128_renderer = Code128ElementRenderer(font_manager)
 
             # Create image (RGB for preview)
             image = self._create_image(template, mode="RGB")
@@ -204,7 +209,7 @@ class ImageTemplateEngine(BaseTemplateEngine):
         self,
         draw: ImageDraw.ImageDraw,
         image: Image.Image,
-        element: TextElement | QRCodeElement | DataMatrixElement,
+        element: TextElement | QRCodeElement | DataMatrixElement | Code128Element,
         context: dict[str, Any],
         template: TemplateConfig,
     ) -> None:
@@ -223,6 +228,8 @@ class ImageTemplateEngine(BaseTemplateEngine):
             self._qrcode_renderer.render(draw, image, element, context, template)
         elif isinstance(element, DataMatrixElement):
             self._datamatrix_renderer.render(draw, image, element, context, template)
+        elif isinstance(element, Code128Element):
+            self._code128_renderer.render(draw, image, element, context, template)
 
     def _apply_circle_mask(
         self,
