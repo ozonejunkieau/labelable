@@ -51,7 +51,8 @@ src/labelable/
 │   │   ├── base.py     # BaseElementRenderer ABC
 │   │   ├── text.py     # Text with wrap/scale/circle-aware
 │   │   ├── qrcode.py   # QR code via qrcode library
-│   │   └── datamatrix.py # DataMatrix via pylibdmtx
+│   │   ├── datamatrix.py # DataMatrix via pylibdmtx
+│   │   └── code128.py  # Code 128 barcode via python-barcode
 │   ├── converters/     # Bitmap format converters
 │   │   ├── zpl.py      # Image → ZPL ^GFA command
 │   │   └── epl2.py     # Image → EPL2 GW command
@@ -76,7 +77,10 @@ custom_components/zebra_printer/   # HA Custom Integration
 ├── sensor.py           # Model, firmware, labels_printed, etc.
 ├── services.py         # print_raw, calibrate, feed handlers
 ├── services.yaml       # Service definitions for UI
+├── button.py           # Calibrate, feed button entities
+├── select.py           # Print density, media type selects
 ├── strings.json        # Config flow UI strings
+├── hacs.json           # HACS repository metadata
 ├── translations/       # Localization
 └── protocol/           # Printer protocol implementations
     ├── base.py         # Abstract protocol + PrinterStatus dataclass
