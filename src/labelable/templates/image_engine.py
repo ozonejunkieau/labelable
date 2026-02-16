@@ -14,7 +14,8 @@ from labelable.models.template import (
     TemplateConfig,
     TextElement,
 )
-from labelable.templates.converters import image_to_epl2, image_to_zpl
+from labelable.printers.ptouch_protocol import build_print_job
+from labelable.templates.converters import image_to_epl2, image_to_ptouch_raster, image_to_zpl
 from labelable.templates.elements import (
     Code128ElementRenderer,
     DataMatrixElementRenderer,
@@ -40,7 +41,7 @@ class ImageTemplateEngine(BaseTemplateEngine):
     - Custom fonts via system font discovery or custom paths
     """
 
-    SUPPORTED_TYPES = {"zpl", "epl2"}
+    SUPPORTED_TYPES = {"zpl", "epl2", "ptouch"}
 
     def __init__(self, custom_font_paths: list[str] | None = None) -> None:
         """Initialize image template engine.
@@ -101,7 +102,24 @@ class ImageTemplateEngine(BaseTemplateEngine):
                 image = self._apply_circle_mask(image, template)
 
             # Convert to output format
-            if output_format.lower() == "epl2":
+            if output_format.lower() == "ptouch":
+                tape_width = template.ptouch_tape_width_mm or 24
+                padding_px = int(template.ptouch_margin_mm * template.dpi / 25.4)
+                cropped = self._crop_to_content(image, padding_px)
+                raster_data, line_count = image_to_ptouch_raster(
+                    cropped,
+                    tape_width_mm=tape_width,
+                    compression=True,
+                )
+                return build_print_job(
+                    raster_data,
+                    line_count,
+                    media_width_mm=tape_width,
+                    auto_cut=template.ptouch_auto_cut,
+                    chain_print=template.ptouch_chain_print,
+                    compression=True,
+                )
+            elif output_format.lower() == "epl2":
                 return image_to_epl2(image)
             else:
                 # Convert mm offsets to dots
@@ -162,6 +180,11 @@ class ImageTemplateEngine(BaseTemplateEngine):
             # Apply circular mask if needed
             if template.shape == LabelShape.CIRCLE:
                 image = self._apply_circle_mask(image, template, preview=True)
+
+            # Crop to content for P-Touch previews (shows actual label size)
+            if template.ptouch_tape_width_mm is not None:
+                padding_px = int(template.ptouch_margin_mm * template.dpi / 25.4)
+                image = self._crop_to_content(image, padding_px)
 
             # Convert to bytes
             buffer = io.BytesIO()
@@ -230,6 +253,40 @@ class ImageTemplateEngine(BaseTemplateEngine):
             self._datamatrix_renderer.render(draw, image, element, context, template)
         elif isinstance(element, Code128Element):
             self._code128_renderer.render(draw, image, element, context, template)
+
+    @staticmethod
+    def _crop_to_content(image: Image.Image, padding_px: int = 0) -> Image.Image:
+        """Crop image to its content bounding box with optional padding.
+
+        Args:
+            image: PIL Image to crop.
+            padding_px: Pixels of padding around content.
+
+        Returns:
+            Cropped image.
+        """
+        # Convert to grayscale to find content
+        gray = image.convert("L")
+        # Invert: getbbox() finds non-zero pixels, white=255 so invert
+        from PIL import ImageChops
+
+        inverted = ImageChops.invert(gray)
+        bbox = inverted.getbbox()
+
+        if bbox is None:
+            # No content found, return as-is
+            return image
+
+        left, top, right, bottom = bbox
+
+        # Apply padding
+        width, height = image.size
+        left = max(0, left - padding_px)
+        top = max(0, top - padding_px)
+        right = min(width, right + padding_px)
+        bottom = min(height, bottom + padding_px)
+
+        return image.crop((left, top, right, bottom))
 
     def _apply_circle_mask(
         self,

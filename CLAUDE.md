@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections.
+Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections, and Brother P-Touch label printers via USB.
 
 ## Development Setup
 
@@ -42,7 +42,8 @@ src/labelable/
 │   ├── base.py         # Abstract Printer interface with cached status
 │   ├── zpl.py          # Zebra ZPL (TCP/serial/HA)
 │   ├── epl2.py         # Zebra EPL2 (TCP/serial/HA)
-│   └── ptouch.py       # Brother P-Touch (stubbed)
+│   ├── ptouch.py       # Brother P-Touch (USB via PyUSB)
+│   └── ptouch_protocol.py # P-Touch PTCBP raster protocol
 ├── templates/          # Template engines
 │   ├── engine.py       # Abstract TemplateEngine
 │   ├── jinja_engine.py # Jinja2 implementation (raw ZPL/EPL2)
@@ -55,13 +56,15 @@ src/labelable/
 │   │   └── code128.py  # Code 128 barcode via python-barcode
 │   ├── converters/     # Bitmap format converters
 │   │   ├── zpl.py      # Image → ZPL ^GFA command
-│   │   └── epl2.py     # Image → EPL2 GW command
+│   │   ├── epl2.py     # Image → EPL2 GW command
+│   │   └── ptouch.py   # Image → P-Touch raster (PackBits)
 │   ├── fonts/          # Font management
 │   │   └── __init__.py # FontManager class
 │   ├── font_manifest.py # Font metadata extraction
 │   └── google_fonts.py # Google Fonts downloader
 ├── cli/                # CLI tools
-│   └── render.py       # labelable-render preview tool
+│   ├── render.py       # labelable-render preview tool
+│   └── ptouch.py       # labelable-ptouch USB printer tool
 └── api/
     ├── routes.py       # REST API endpoints
     └── ui.py           # FastUI web interface
@@ -118,6 +121,13 @@ printers:
     healthcheck:
       interval: 60
       command: "UQ"
+
+  - name: ptouch
+    type: ptouch
+    connection:
+      type: usb
+      # vid: 0x04F9  # Brother vendor ID (default)
+      # pid: 0x20AF  # P710BT product ID (default)
 
   # HA Integration connection (uses zebra_printer integration as transport)
   - name: ha-printer
@@ -254,6 +264,39 @@ elements:
     size_mm: 12
 ```
 
+**P-Touch Image Engine Example (continuous tape):**
+```yaml
+name: ptouch-label
+description: Label for P-Touch continuous tape
+engine: image
+dimensions:
+  width_mm: 9       # Tape width (print head direction)
+  height_mm: 50     # Max label length (cropped to content)
+dpi: 180            # P-Touch uses 180 DPI
+supported_printers:
+  - ptouch
+ptouch_tape_width_mm: 9    # 6, 9, 12, 18, or 24
+ptouch_auto_cut: true       # Auto-cut after printing
+ptouch_chain_print: false   # Hold label in printer (no feed)
+ptouch_margin_mm: 3.0       # Padding around content
+fields:
+  - name: title
+    type: string
+    required: true
+elements:
+  - type: text
+    field: title
+    bounds:
+      x_mm: 0
+      y_mm: 2
+      width_mm: 9
+      height_mm: 7
+    font_size: 72
+    alignment: center
+    vertical_align: middle
+    auto_scale: true
+```
+
 ## Key Design Patterns
 
 ### Async Architecture
@@ -340,6 +383,21 @@ Note: Replace `localhost:7979` with the add-on's internal hostname if accessing 
 - `B` - Barcode
 - `P` - Print label
 
+### P-Touch PTCBP (Brother Raster Protocol)
+- Print head: 128 pixels wide (16 bytes/line), 180 DPI
+- `ESC @` - Reset printer
+- `ESC i a 0x01` - Enter raster mode
+- `ESC i S` - Request status (returns 32 bytes)
+- `ESC i z` - Print info (media width, raster line count)
+- `ESC i M` - Mode (auto-cut flag in bit 6)
+- `ESC i K` - Advanced mode (`0x08` = no chain/feed out, `0x00` = chain/hold)
+- `ESC i d` - Feed margin (14 dots with auto-cut, 0 without)
+- `M 0x02` / `M 0x00` - TIFF compression on/off
+- `G <len_le16> <data>` - Compressed raster line
+- `g <len_le16> <data>` - Uncompressed raster line
+- `Z` - Blank raster line
+- `0x1A` (SUB) - Print and feed
+
 ## CLI Tools
 
 ### labelable-render
@@ -371,6 +429,27 @@ uv run labelable-render templates/jar-label.yaml \
 uv run labelable-render templates/my-template.yaml \
   --download-fonts \
   -o preview.png
+```
+
+### labelable-ptouch
+
+Query status and print labels on Brother P-Touch USB printers:
+
+```bash
+# Query printer status
+uv run labelable-ptouch status
+
+# Print a label
+uv run labelable-ptouch print templates/ptouch-label.yaml -d title="Hello"
+
+# Preview (save cropped PNG instead of printing)
+uv run labelable-ptouch print templates/ptouch-label.yaml -d title="Hello" --preview preview.png
+
+# Dump raw raster bytes for debugging
+uv run labelable-ptouch print templates/ptouch-label.yaml -d title="Hello" --dump raw.bin
+
+# Use custom USB vendor/product IDs
+uv run labelable-ptouch status --vid 0x04F9 --pid 0x20AF
 ```
 
 ## Font Management

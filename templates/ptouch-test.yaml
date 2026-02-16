@@ -1,0 +1,27 @@
+description: P-Touch test label
+engine: image
+dimensions:
+  width_mm: 9
+  height_mm: 50
+dpi: 180
+supported_printers:
+  - ptouch
+ptouch_tape_width_mm: 9
+ptouch_auto_cut: true
+ptouch_margin_mm: 3.0
+fields:
+  - name: title
+    type: string
+    required: true
+elements:
+  - type: text
+    field: title
+    bounds:
+      x_mm: 0
+      y_mm: 2
+      width_mm: 9
+      height_mm: 7
+    font_size: 72
+    alignment: center
+    vertical_align: middle
+    auto_scale: true

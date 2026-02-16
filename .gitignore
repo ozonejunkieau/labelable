@@ -58,6 +58,7 @@ templates/*.yaml
 !templates/example-circle.yaml
 !templates/example-circle-wrap.yaml
 !templates/example-google-font.yaml
+!templates/ptouch-test.yaml
 
 # Downloaded fonts
 templates/fonts/

@@ -191,6 +191,12 @@ class TemplateConfig(BaseModel):
     # Print settings
     darkness: int | None = None  # Print darkness 0-30 (ZPL ~SD command)
 
+    # P-Touch settings (for continuous tape printers)
+    ptouch_tape_width_mm: int | None = None  # 6, 9, 12, 18, or 24
+    ptouch_auto_cut: bool = True
+    ptouch_chain_print: bool = False  # Hold label in printer (don't feed after print)
+    ptouch_margin_mm: float = 1.0  # Padding around content before cropping
+
     def get_field(self, name: str) -> TemplateField | None:
         """Get a field by name."""
         for field in self.fields:

@@ -8,8 +8,8 @@ from labelable.models.printer import (
     HAConnection,
     PrinterConfig,
     PrinterType,
-    SerialConnection,
     TCPConnection,
+    USBConnection,
 )
 from labelable.printers import (
     EPL2Printer,
@@ -51,7 +51,7 @@ class TestCreatePrinter:
         config = PrinterConfig(
             name="test-ptouch",
             type=PrinterType.PTOUCH,
-            connection=SerialConnection(device="/dev/ttyUSB0"),
+            connection=USBConnection(),
         )
         printer = create_printer(config)
         assert isinstance(printer, PTouchPrinter)
