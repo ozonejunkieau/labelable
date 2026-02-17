@@ -139,6 +139,38 @@ class PTouchPrinter(BasePrinter):
             return (float(self._last_status.media_width_mm), 0.0)
         return None
 
+    async def check_media_width(self, expected_width_mm: int) -> None:
+        """Verify the loaded tape width matches the expected width.
+
+        Queries printer status and compares media_width_mm.
+
+        Args:
+            expected_width_mm: Expected tape width in mm.
+
+        Raises:
+            PrinterError: If media width doesn't match or status query fails.
+        """
+        if not self._connected:
+            raise PrinterError("Printer not connected")
+
+        await self._send(CMD_STATUS_REQUEST)
+        response = await self._recv(size=STATUS_RESPONSE_LENGTH, timeout=3.0)
+
+        if len(response) != STATUS_RESPONSE_LENGTH:
+            raise PrinterError(f"Failed to read printer status (got {len(response)} bytes)")
+
+        status = parse_status(response)
+        self._last_status = status
+
+        if status.has_errors:
+            raise PrinterError(f"Printer has errors: {', '.join(status.error_descriptions)}")
+
+        if status.media_width_mm != expected_width_mm:
+            raise PrinterError(
+                f"Media width mismatch: printer has {status.media_width_mm}mm "
+                f"tape loaded, but template requires {expected_width_mm}mm"
+            )
+
     async def print_raw(self, data: bytes) -> None:
         """Send raw raster data to the printer."""
         if not self._connected:

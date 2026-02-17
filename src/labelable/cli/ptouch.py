@@ -134,6 +134,11 @@ async def _print(
         await printer.connect()
 
         try:
+            # Validate media width matches template before printing
+            if template.ptouch_tape_width_mm is not None:
+                print(f"Checking media width ({template.ptouch_tape_width_mm}mm expected)...")
+                await printer.check_media_width(template.ptouch_tape_width_mm)
+
             print(f"Sending {len(output)} bytes...")
             await printer.print_raw(output)
             print("Print job sent.")
@@ -192,6 +197,13 @@ def main() -> int:
         help="Save raw raster bytes to file for debugging",
     )
     print_parser.add_argument(
+        "--list-file",
+        action="append",
+        default=[],
+        metavar="KEY=FILE",
+        help="Read list field from file (one item per line)",
+    )
+    print_parser.add_argument(
         "--vid",
         type=lambda x: int(x, 0),
         default=0x04F9,
@@ -234,6 +246,17 @@ def main() -> int:
                 return 1
             key, value = item.split("=", 1)
             context[key] = value
+
+        for item in args.list_file:
+            if "=" not in item:
+                print(f"Error: Invalid list-file format '{item}'. Use KEY=FILE", file=sys.stderr)
+                return 1
+            key, filepath = item.split("=", 1)
+            list_path = Path(filepath)
+            if not list_path.exists():
+                print(f"Error: List file not found: {list_path}", file=sys.stderr)
+                return 1
+            context[key] = list_path.read_text()
 
         connection = USBConnection(vendor_id=args.vid, product_id=args.pid)
         return asyncio.run(

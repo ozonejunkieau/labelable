@@ -187,6 +187,7 @@ Templates are YAML files supporting two engines:
 - `select` - Radio buttons (predefined options list)
 - `datetime` - Auto-populated with current timestamp (uses `format` for strftime)
 - `user` - Auto-populated from Home Assistant user (via `X-Remote-User-Display-Name` header)
+- `list` - Newline-separated list of values (textarea in UI, used with batch config)
 
 **Jinja Engine Example:**
 ```yaml
@@ -296,6 +297,46 @@ elements:
     vertical_align: middle
     auto_scale: true
 ```
+
+**Batch Label Example (multiple labels from a list):**
+```yaml
+name: heatshrink-signals
+description: Heatshrink labels for signal wires
+engine: image
+dimensions:
+  width_mm: 9
+  height_mm: 50
+dpi: 180
+supported_printers:
+  - ptouch
+ptouch_tape_width_mm: 9
+ptouch_auto_cut: true
+ptouch_margin_mm: 1.0
+batch:
+  alignment: center   # left, center, or right along label length
+  cut_lines: true      # 1px black lines between labels
+  padding_mm: 1.5      # Padding around each label in the strip
+  min_label_length_mm: 0  # Minimum label length (0 = auto)
+fields:
+  - name: signals
+    type: list         # Renders as textarea in UI, splits on newlines
+    required: true
+    description: "One signal name per line"
+elements:
+  - type: text
+    field: signals
+    bounds:
+      x_mm: 0
+      y_mm: 0
+      width_mm: 9
+      height_mm: 50
+    font: MartianMono-Medium
+    font_size: 72
+    alignment: center
+    auto_scale: true
+```
+
+Batch mode is auto-detected when a template has `batch` config and a `list` field. All labels are rendered as one image strip with uniform-width labels. The UI shows a textarea for the list field; the CLI accepts `-d signals="GND\nVCC\nSDA"` or `--list-file signals=file.txt`.
 
 ## Key Design Patterns
 
@@ -447,6 +488,12 @@ uv run labelable-ptouch print templates/ptouch-label.yaml -d title="Hello" --pre
 
 # Dump raw raster bytes for debugging
 uv run labelable-ptouch print templates/ptouch-label.yaml -d title="Hello" --dump raw.bin
+
+# Batch print from inline list (newline-escaped)
+uv run labelable-ptouch print templates/heatshrink-signals.yaml -d signals="GND\nVCC\nSDA\nSCL"
+
+# Batch print from file (one item per line)
+uv run labelable-ptouch print templates/heatshrink-signals.yaml --list-file signals=signals.txt
 
 # Use custom USB vendor/product IDs
 uv run labelable-ptouch status --vid 0x04F9 --pid 0x20AF

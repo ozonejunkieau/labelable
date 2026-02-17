@@ -7,15 +7,22 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from labelable.models.template import (
+    BatchAlignment,
     Code128Element,
     DataMatrixElement,
+    FieldType,
     LabelShape,
     QRCodeElement,
     TemplateConfig,
     TextElement,
 )
 from labelable.printers.ptouch_protocol import build_print_job
-from labelable.templates.converters import image_to_epl2, image_to_ptouch_raster, image_to_zpl
+from labelable.templates.converters import (
+    batch_image_to_ptouch_raster,
+    image_to_epl2,
+    image_to_ptouch_raster,
+    image_to_zpl,
+)
 from labelable.templates.elements import (
     Code128ElementRenderer,
     DataMatrixElementRenderer,
@@ -65,10 +72,12 @@ class ImageTemplateEngine(BaseTemplateEngine):
     ) -> bytes:
         """Render a template to printer commands.
 
+        Auto-detects batch mode when template has batch config and a LIST field.
+
         Args:
             template: Template configuration with elements.
             context: Dictionary of field values.
-            output_format: Output format ("zpl" or "epl2").
+            output_format: Output format ("zpl", "epl2", or "ptouch").
 
         Returns:
             Printer commands as bytes.
@@ -79,38 +88,35 @@ class ImageTemplateEngine(BaseTemplateEngine):
         try:
             # Validate context
             validated_context = template.validate_data(context)
+            self._apply_font_paths(template)
 
-            # Create font manager with template-specific paths
-            font_manager = self._font_manager
-            if template.font_paths:
-                font_manager = FontManager(template.font_paths)
-                self._text_renderer = TextElementRenderer(font_manager)
-                self._qrcode_renderer = QRCodeElementRenderer(font_manager)
-                self._datamatrix_renderer = DataMatrixElementRenderer(font_manager)
-                self._code128_renderer = Code128ElementRenderer(font_manager)
-
-            # Create image
-            image = self._create_image(template)
-            draw = ImageDraw.Draw(image)
-
-            # Render each element
-            for element in template.elements:
-                self._render_element(draw, image, element, validated_context, template)
-
-            # Apply circular mask if needed
-            if template.shape == LabelShape.CIRCLE:
-                image = self._apply_circle_mask(image, template)
+            # Auto-detect batch mode
+            is_batch = self._is_batch_mode(template, validated_context)
+            if is_batch:
+                image = self._render_batch_image(template, validated_context, mode="1")
+            else:
+                image = self._render_single_label_image(template, validated_context, mode="1")
 
             # Convert to output format
             if output_format.lower() == "ptouch":
                 tape_width = template.ptouch_tape_width_mm or 24
-                padding_px = int(template.ptouch_margin_mm * template.dpi / 25.4)
-                cropped = self._crop_to_content(image, padding_px)
-                raster_data, line_count = image_to_ptouch_raster(
-                    cropped,
-                    tape_width_mm=tape_width,
-                    compression=True,
-                )
+                if is_batch:
+                    # Batch: horizontal strip (width=feed, height=tape).
+                    # Use column-by-column rasterizer instead of the
+                    # standard rotate+mirror converter.
+                    raster_data, line_count = batch_image_to_ptouch_raster(
+                        image,
+                        tape_width_mm=tape_width,
+                        compression=True,
+                    )
+                else:
+                    padding_px = int(template.ptouch_margin_mm * template.dpi / 25.4)
+                    cropped = self._crop_to_content(image, padding_px)
+                    raster_data, line_count = image_to_ptouch_raster(
+                        cropped,
+                        tape_width_mm=tape_width,
+                        compression=True,
+                    )
                 return build_print_job(
                     raster_data,
                     line_count,
@@ -145,6 +151,8 @@ class ImageTemplateEngine(BaseTemplateEngine):
     ) -> bytes:
         """Render a template to a preview image.
 
+        Auto-detects batch mode when template has batch config and a LIST field.
+
         Args:
             template: Template configuration with elements.
             context: Dictionary of field values.
@@ -159,32 +167,26 @@ class ImageTemplateEngine(BaseTemplateEngine):
         try:
             # Validate context
             validated_context = template.validate_data(context)
+            self._apply_font_paths(template)
 
-            # Create font manager with template-specific paths
-            font_manager = self._font_manager
-            if template.font_paths:
-                font_manager = FontManager(template.font_paths)
-                self._text_renderer = TextElementRenderer(font_manager)
-                self._qrcode_renderer = QRCodeElementRenderer(font_manager)
-                self._datamatrix_renderer = DataMatrixElementRenderer(font_manager)
-                self._code128_renderer = Code128ElementRenderer(font_manager)
+            # Auto-detect batch mode
+            if self._is_batch_mode(template, validated_context):
+                image = self._render_batch_image(
+                    template,
+                    validated_context,
+                    mode="RGB",
+                )
+            else:
+                image = self._render_single_label_image(template, validated_context, mode="RGB")
 
-            # Create image (RGB for preview)
-            image = self._create_image(template, mode="RGB")
-            draw = ImageDraw.Draw(image)
+                # Apply circular mask if needed
+                if template.shape == LabelShape.CIRCLE:
+                    image = self._apply_circle_mask(image, template, preview=True)
 
-            # Render each element
-            for element in template.elements:
-                self._render_element(draw, image, element, validated_context, template)
-
-            # Apply circular mask if needed
-            if template.shape == LabelShape.CIRCLE:
-                image = self._apply_circle_mask(image, template, preview=True)
-
-            # Crop to content for P-Touch previews (shows actual label size)
-            if template.ptouch_tape_width_mm is not None:
-                padding_px = int(template.ptouch_margin_mm * template.dpi / 25.4)
-                image = self._crop_to_content(image, padding_px)
+                # Crop to content for P-Touch previews (shows actual label size)
+                if template.ptouch_tape_width_mm is not None:
+                    padding_px = int(template.ptouch_margin_mm * template.dpi / 25.4)
+                    image = self._crop_to_content(image, padding_px)
 
             # Convert to bytes
             buffer = io.BytesIO()
@@ -199,6 +201,227 @@ class ImageTemplateEngine(BaseTemplateEngine):
     def supports_printer_type(self, printer_type: str) -> bool:
         """Check if this engine supports the given printer type."""
         return printer_type.lower() in self.SUPPORTED_TYPES
+
+    def _apply_font_paths(self, template: TemplateConfig) -> None:
+        """Apply template-specific font paths if configured."""
+        if template.font_paths:
+            font_manager = FontManager(template.font_paths)
+            self._text_renderer = TextElementRenderer(font_manager)
+            self._qrcode_renderer = QRCodeElementRenderer(font_manager)
+            self._datamatrix_renderer = DataMatrixElementRenderer(font_manager)
+            self._code128_renderer = Code128ElementRenderer(font_manager)
+
+    def _render_single_label_image(
+        self,
+        template: TemplateConfig,
+        validated_context: dict[str, Any],
+        mode: str = "1",
+    ) -> Image.Image:
+        """Render a single label to a PIL Image (no format conversion).
+
+        Args:
+            template: Template configuration with elements.
+            validated_context: Already-validated context dictionary.
+            mode: PIL image mode ("1" for 1-bit, "RGB" for preview).
+
+        Returns:
+            PIL Image of the rendered label.
+        """
+        image = self._create_image(template, mode=mode)
+        draw = ImageDraw.Draw(image)
+
+        for element in template.elements:
+            self._render_element(draw, image, element, validated_context, template)
+
+        if template.shape == LabelShape.CIRCLE:
+            image = self._apply_circle_mask(image, template, preview=(mode != "1"))
+
+        return image
+
+    @staticmethod
+    def _is_batch_mode(template: TemplateConfig, context: dict[str, Any]) -> bool:
+        """Check if this render should use batch mode."""
+        if template.batch is None:
+            return False
+        for field in template.fields:
+            if field.type == FieldType.LIST and field.name in context:
+                return True
+        return False
+
+    @staticmethod
+    def _extract_list_items(template: TemplateConfig, context: dict[str, Any]) -> tuple[str, list[str]]:
+        """Find the LIST field and extract individual items.
+
+        Returns:
+            Tuple of (field_name, list_of_items).
+
+        Raises:
+            TemplateError: If no LIST field is found.
+        """
+        for field in template.fields:
+            if field.type == FieldType.LIST and field.name in context:
+                raw = context[field.name]
+                items = [item.strip() for item in str(raw).split("\n") if item.strip()]
+                return field.name, items
+        raise TemplateError("Batch mode requires a LIST field with data")
+
+    def _render_batch_image(
+        self,
+        template: TemplateConfig,
+        validated_context: dict[str, Any],
+        mode: str = "1",
+    ) -> Image.Image:
+        """Render a batch of labels as a single horizontal strip image.
+
+        All labels use the same font size (determined by tape height minus
+        margins). The strip is composed horizontally: labels side-by-side
+        in the feed direction, with vertical cut-line guides.
+
+        The raster converter handles rotation for printing.
+
+        Args:
+            template: Template configuration with batch config.
+            validated_context: Already-validated context dictionary.
+            mode: PIL image mode ("1" for 1-bit, "RGB" for preview).
+
+        Returns:
+            PIL Image of the full batch strip.
+        """
+        assert template.batch is not None
+        batch = template.batch
+
+        list_field_name, items = self._extract_list_items(template, validated_context)
+        if not items:
+            raise TemplateError("Batch list is empty")
+
+        dpi = template.dpi
+        tape_width_px = int(template.dimensions.width_mm * dpi / 25.4)
+        margin_px = int(batch.margin_mm * dpi / 25.4)
+        padding_px = int(batch.padding_mm * dpi / 25.4)
+        min_label_len_px = int(batch.min_label_length_mm * dpi / 25.4)
+
+        # Find the text element referencing the list field
+        text_element = None
+        for element in template.elements:
+            if isinstance(element, TextElement) and element.field == list_field_name:
+                text_element = element
+                break
+        if text_element is None:
+            raise TemplateError(f"No text element found for LIST field '{list_field_name}'")
+
+        # Available height for text = tape width minus top/bottom margins
+        available_height = tape_width_px - 2 * margin_px
+
+        # Find uniform font size fitting all items within available height
+        font_name = text_element.font
+        font_size = self._find_batch_font_size(
+            font_name,
+            text_element.font_size,
+            available_height,
+            items,
+        )
+        font = self._font_manager.get_font(font_name, font_size)
+
+        # Measure all items at uniform font size to find label width
+        temp_img = Image.new("1", (1, 1))
+        temp_draw = ImageDraw.Draw(temp_img)
+        item_widths = []
+        for item in items:
+            bbox = temp_draw.textbbox((0, 0), item, font=font)
+            item_widths.append(bbox[2] - bbox[0])
+
+        max_text_width = max(item_widths)
+        uniform_label_width = max(max_text_width, min_label_len_px)
+
+        # Compose horizontal strip
+        n = len(items)
+        cut_line_px = 1 if batch.cut_lines else 0
+        slot_width = uniform_label_width + 2 * padding_px
+        total_width = n * slot_width + (n + 1) * cut_line_px
+        total_height = tape_width_px
+
+        bg_color: int | str = 1 if mode == "1" else "white"
+        line_color: int | str = 0 if mode == "1" else "black"
+        text_color: int | str = 0 if mode == "1" else "black"
+
+        strip = Image.new(mode, (total_width, total_height), color=bg_color)
+        draw = ImageDraw.Draw(strip)
+
+        for i, item in enumerate(items):
+            slot_x = cut_line_px + i * (slot_width + cut_line_px)
+
+            # Measure this item
+            bbox = draw.textbbox((0, 0), item, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+            text_y_offset = bbox[1]  # baseline offset from textbbox
+
+            # Vertical: center text within margins
+            y = margin_px + (available_height - text_h) // 2 - text_y_offset
+
+            # Horizontal: alignment within slot (padding on each side)
+            if batch.alignment == BatchAlignment.CENTER:
+                x = slot_x + (slot_width - text_w) // 2
+            elif batch.alignment == BatchAlignment.RIGHT:
+                x = slot_x + slot_width - padding_px - text_w
+            else:  # LEFT
+                x = slot_x + padding_px
+
+            draw.text((x, y), item, font=font, fill=text_color)
+
+        # Draw N+1 vertical cut lines at all edges
+        if batch.cut_lines:
+            for i in range(n + 1):
+                line_x = i * (slot_width + cut_line_px)
+                draw.line(
+                    [(line_x, 0), (line_x, total_height - 1)],
+                    fill=line_color,
+                    width=1,
+                )
+
+        return strip
+
+    def _find_batch_font_size(
+        self,
+        font_name: str,
+        max_size: int,
+        available_height: int,
+        items: list[str],
+    ) -> int:
+        """Find the largest font size where all items fit the available height.
+
+        Uses binary search, same tolerance as TextElementRenderer.
+
+        Args:
+            font_name: Font name (supports Google Fonts via FontManager).
+            max_size: Maximum font size to try.
+            available_height: Available pixel height for text.
+            items: List of text strings to fit.
+
+        Returns:
+            Optimal font size.
+        """
+        temp_img = Image.new("1", (1, 1))
+        temp_draw = ImageDraw.Draw(temp_img)
+        min_size = 6
+
+        while max_size - min_size > 2:
+            mid_size = (min_size + max_size) // 2
+            font = self._font_manager.get_font(font_name, mid_size)
+
+            fits = True
+            for item in items:
+                bbox = temp_draw.textbbox((0, 0), item, font=font)
+                if bbox[3] - bbox[1] > available_height:
+                    fits = False
+                    break
+
+            if fits:
+                min_size = mid_size
+            else:
+                max_size = mid_size
+
+        return min_size
 
     def _create_image(self, template: TemplateConfig, mode: str = "1") -> Image.Image:
         """Create a new image for the template.

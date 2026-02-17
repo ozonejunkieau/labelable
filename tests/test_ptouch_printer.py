@@ -297,6 +297,89 @@ class TestPTouchPrintRaw:
             await printer.print_raw(b"data")
 
 
+class TestPTouchCheckMediaWidth:
+    async def test_matching_width_passes(self):
+        config = _make_config()
+        printer = PTouchPrinter(config)
+        printer._connected = True
+
+        mock_ep_out = MagicMock()
+        mock_ep_in = MagicMock()
+        mock_ep_in.read.return_value = _ok_status(width_mm=9)
+        printer._usb_ep_out = mock_ep_out
+        printer._usb_ep_in = mock_ep_in
+
+        # Should not raise
+        await printer.check_media_width(9)
+        assert printer._last_status is not None
+        assert printer._last_status.media_width_mm == 9
+
+    async def test_mismatched_width_raises(self):
+        config = _make_config()
+        printer = PTouchPrinter(config)
+        printer._connected = True
+
+        mock_ep_out = MagicMock()
+        mock_ep_in = MagicMock()
+        mock_ep_in.read.return_value = _ok_status(width_mm=12)
+        printer._usb_ep_out = mock_ep_out
+        printer._usb_ep_in = mock_ep_in
+
+        with pytest.raises(PrinterError, match="Media width mismatch.*12mm.*9mm"):
+            await printer.check_media_width(9)
+
+    async def test_not_connected_raises(self):
+        config = _make_config()
+        printer = PTouchPrinter(config)
+
+        with pytest.raises(PrinterError, match="not connected"):
+            await printer.check_media_width(9)
+
+    async def test_short_response_raises(self):
+        config = _make_config()
+        printer = PTouchPrinter(config)
+        printer._connected = True
+
+        mock_ep_out = MagicMock()
+        mock_ep_in = MagicMock()
+        mock_ep_in.read.return_value = b"\x00" * 10
+        printer._usb_ep_out = mock_ep_out
+        printer._usb_ep_in = mock_ep_in
+
+        with pytest.raises(PrinterError, match="Failed to read printer status"):
+            await printer.check_media_width(9)
+
+    async def test_printer_errors_raises(self):
+        config = _make_config()
+        printer = PTouchPrinter(config)
+        printer._connected = True
+
+        mock_ep_out = MagicMock()
+        mock_ep_in = MagicMock()
+        mock_ep_in.read.return_value = _error_status(error1=0x01)  # NO_MEDIA
+        printer._usb_ep_out = mock_ep_out
+        printer._usb_ep_in = mock_ep_in
+
+        with pytest.raises(PrinterError, match="Printer has errors"):
+            await printer.check_media_width(9)
+
+    async def test_timeout_raises(self):
+        import usb.core
+
+        config = _make_config()
+        printer = PTouchPrinter(config)
+        printer._connected = True
+
+        mock_ep_out = MagicMock()
+        mock_ep_in = MagicMock()
+        mock_ep_in.read.side_effect = usb.core.USBTimeoutError("timeout")
+        printer._usb_ep_out = mock_ep_out
+        printer._usb_ep_in = mock_ep_in
+
+        with pytest.raises(PrinterError, match="Failed to read printer status"):
+            await printer.check_media_width(9)
+
+
 class TestPTouchSendRecv:
     async def test_send_raises_if_no_endpoint(self):
         config = _make_config()

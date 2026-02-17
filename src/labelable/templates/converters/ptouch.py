@@ -154,3 +154,81 @@ def image_to_ptouch_raster(
             raster_bytes.extend(line_data)
 
     return bytes(raster_bytes), raster_line_count
+
+
+def batch_image_to_ptouch_raster(
+    image: Image.Image,
+    tape_width_mm: int = 24,
+    compression: bool = True,
+) -> tuple[bytes, int]:
+    """Convert a horizontal batch strip to P-Touch raster data.
+
+    Unlike image_to_ptouch_raster (which rotates tall/narrow single-label
+    images), this reads the horizontal strip column-by-column: each column
+    becomes one raster line and each row maps to a print head position.
+
+    The batch strip has width = feed direction, height = tape width.
+
+    Args:
+        image: Horizontal batch strip (width=feed, height=tape_width).
+        tape_width_mm: Tape width in mm (6, 9, 12, 18, or 24).
+        compression: Use TIFF PackBits compression.
+
+    Returns:
+        Tuple of (raster_bytes, raster_line_count).
+
+    Raises:
+        ValueError: If tape width is not supported.
+    """
+    if tape_width_mm not in TAPE_SPECS:
+        raise ValueError(f"Unsupported tape width: {tape_width_mm}mm. Supported: {sorted(TAPE_SPECS.keys())}")
+
+    printable_px, left_margin, _right_margin = TAPE_SPECS[tape_width_mm]
+
+    # Convert to 1-bit
+    if image.mode != "1":
+        image = image.convert("1")
+
+    img_w, img_h = image.size
+
+    # Scale only the tape direction (height) to fit printable area.
+    # Width (feed direction) stays unchanged — each column = one raster line.
+    if img_h != printable_px:
+        image = image.resize((img_w, printable_px), Image.NEAREST)
+        img_w, img_h = image.size
+
+    pixels: list[int] = list(image.getdata())  # type: ignore[arg-type]
+    raster_line_count = img_w
+    raster_bytes = bytearray()
+
+    for col in range(img_w):
+        line_data = bytearray(BYTES_PER_LINE)
+        is_blank = True
+
+        for row in range(img_h):
+            # Row 0 (top of image) → low head position (left_margin)
+            # Row img_h-1 (bottom) → high head position
+            head_pos = left_margin + row
+
+            pixel_idx = row * img_w + col
+            # PIL mode "1": 0 = black, non-zero = white
+            # P-Touch: 1 = black, 0 = white
+            if pixels[pixel_idx] == 0:
+                byte_idx = head_pos // 8
+                bit = 7 - (head_pos % 8)
+                line_data[byte_idx] |= 1 << bit
+                is_blank = False
+
+        if is_blank:
+            raster_bytes.extend(b"Z")
+        elif compression:
+            compressed = _packbits_encode(bytes(line_data))
+            raster_bytes.extend(b"G")
+            raster_bytes.extend(struct.pack("<H", len(compressed)))
+            raster_bytes.extend(compressed)
+        else:
+            raster_bytes.extend(b"g")
+            raster_bytes.extend(struct.pack("<H", len(line_data)))
+            raster_bytes.extend(line_data)
+
+    return bytes(raster_bytes), raster_line_count
