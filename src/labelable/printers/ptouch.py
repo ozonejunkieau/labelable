@@ -2,10 +2,9 @@
 
 import asyncio
 import logging
-from typing import Any
 
-import usb.core
-import usb.util
+import usb.core  # type: ignore[import-untyped]
+import usb.util  # type: ignore[import-untyped]
 
 from labelable.models.printer import PrinterConfig, USBConnection
 from labelable.printers.base import BasePrinter, PrinterError
@@ -29,9 +28,9 @@ class PTouchPrinter(BasePrinter):
 
     def __init__(self, config: PrinterConfig) -> None:
         super().__init__(config)
-        self._usb_dev: Any | None = None  # usb.core.Device
-        self._usb_ep_out: Any | None = None
-        self._usb_ep_in: Any | None = None
+        self._usb_dev: usb.core.Device | None = None
+        self._usb_ep_out: usb.core.Endpoint | None = None
+        self._usb_ep_in: usb.core.Endpoint | None = None
         self._last_status: StatusResponse | None = None
 
     async def connect(self) -> None:
@@ -45,20 +44,22 @@ class PTouchPrinter(BasePrinter):
 
         loop = asyncio.get_event_loop()
 
-        def _open() -> tuple[Any, Any, Any]:
-            dev = usb.core.find(idVendor=conn.vendor_id, idProduct=conn.product_id)
+        def _open() -> tuple[usb.core.Device, usb.core.Endpoint, usb.core.Endpoint]:
+            dev: usb.core.Device | None = usb.core.find(  # type: ignore[assignment]
+                idVendor=conn.vendor_id, idProduct=conn.product_id
+            )
             if dev is None:
                 raise ConnectionError(f"USB device {conn.vendor_id:04x}:{conn.product_id:04x} not found")
             if dev.is_kernel_driver_active(0):
                 dev.detach_kernel_driver(0)
             dev.set_configuration()
             cfg = dev.get_active_configuration()
-            intf = cfg[(0, 0)]
-            ep_out = usb.util.find_descriptor(
+            intf = cfg[(0, 0)]  # type: ignore[index]
+            ep_out: usb.core.Endpoint | None = usb.util.find_descriptor(  # type: ignore[assignment]
                 intf,
                 custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT,
             )
-            ep_in = usb.util.find_descriptor(
+            ep_in: usb.core.Endpoint | None = usb.util.find_descriptor(  # type: ignore[assignment]
                 intf,
                 custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN,
             )
@@ -188,14 +189,15 @@ class PTouchPrinter(BasePrinter):
 
     async def _recv(self, size: int = 1024, timeout: float = 3.0) -> bytes:
         """Read data from USB bulk endpoint."""
-        if self._usb_ep_in is None:
+        ep_in = self._usb_ep_in
+        if ep_in is None:
             raise ConnectionError("USB not connected")
 
         timeout_ms = int(timeout * 1000)
 
         def _usb_read() -> bytes:
             try:
-                data = self._usb_ep_in.read(size, timeout=timeout_ms)
+                data = ep_in.read(size, timeout=timeout_ms)
                 return bytes(data)
             except usb.core.USBTimeoutError:
                 return b""

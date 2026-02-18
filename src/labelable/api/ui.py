@@ -1197,7 +1197,7 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
 
         # Add asterisk for required fields, include description
         base_title = field.name.replace("_", " ").title()
-        extra_schema = {"format": "textarea"} if field.type == FieldType.LIST else None
+        extra_schema: dict[str, Any] | None = {"format": "textarea"} if field.type == FieldType.LIST else None
         if field.required and field.default is None:
             title = f"{base_title} *"
             fields[field.name] = (

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections, and Brother P-Touch label printers via USB.
+Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections, and Brother P-Touch label printers via USB or remotely via the bridge daemon.
 
 ## Development Setup
 
@@ -35,7 +35,7 @@ src/labelable/
 ├── queue.py            # In-memory print queue with expiry
 ├── __main__.py         # Entry point (uv run labelable)
 ├── models/             # Pydantic data models
-│   ├── printer.py      # Printer configuration (TCP, serial, HA connections)
+│   ├── printer.py      # Printer configuration (TCP, serial, HA, bridge connections)
 │   ├── template.py     # Label template definitions
 │   └── job.py          # Print job representation
 ├── printers/           # Printer implementations
@@ -43,6 +43,7 @@ src/labelable/
 │   ├── zpl.py          # Zebra ZPL (TCP/serial/HA)
 │   ├── epl2.py         # Zebra EPL2 (TCP/serial/HA)
 │   ├── ptouch.py       # Brother P-Touch (USB via PyUSB)
+│   ├── bridge.py       # Bridge P-Touch (long-polling job relay)
 │   └── ptouch_protocol.py # P-Touch PTCBP raster protocol
 ├── templates/          # Template engines
 │   ├── engine.py       # Abstract TemplateEngine
@@ -64,7 +65,8 @@ src/labelable/
 │   └── google_fonts.py # Google Fonts downloader
 ├── cli/                # CLI tools
 │   ├── render.py       # labelable-render preview tool
-│   └── ptouch.py       # labelable-ptouch USB printer tool
+│   ├── ptouch.py       # labelable-ptouch USB printer tool
+│   └── bridge.py       # labelable-bridge USB relay daemon
 └── api/
     ├── routes.py       # REST API endpoints
     └── ui.py           # FastUI web interface
@@ -137,6 +139,16 @@ printers:
       device_id: warehouse_zebra  # Device ID from HA integration
       # ha_url: http://supervisor/core  # Default, override if needed
       # ha_token: null  # Uses SUPERVISOR_TOKEN when running as add-on
+
+  # Bridge connection (remote P-Touch via bridge daemon)
+  # Created automatically when a bridge daemon registers.
+  # The daemon polls the server for jobs - no inbound ports needed.
+  - name: remote-ptouch
+    type: ptouch
+    connection:
+      type: bridge
+      serial_number: "ABC123"           # USB serial for identity
+      # tape_width_mm: 9               # Optional, reported by daemon
 
 templates_dir: ./templates
 ```
@@ -405,6 +417,10 @@ Note: Replace `localhost:7979` with the add-on's internal hostname if accessing 
 | GET | `/api/v1/templates` | List available templates |
 | GET | `/api/v1/templates/{name}` | Get template details |
 | POST | `/api/v1/print/{template}` | Submit print job |
+| POST | `/api/v1/bridge/register` | Register bridge daemon |
+| GET | `/api/v1/bridge/{name}/job` | Daemon polls for pending job |
+| POST | `/api/v1/bridge/{name}/result` | Daemon reports job result |
+| POST | `/api/v1/bridge/{name}/status` | Daemon reports printer status |
 
 ## Printer Commands Reference
 
@@ -497,6 +513,39 @@ uv run labelable-ptouch print templates/heatshrink-signals.yaml --list-file sign
 
 # Use custom USB vendor/product IDs
 uv run labelable-ptouch status --vid 0x04F9 --pid 0x20AF
+```
+
+### labelable-bridge
+
+Bridge daemon for remote P-Touch USB printers. Runs on a machine (e.g., Raspberry Pi Zero W) with the USB printer attached and relays print jobs from a remote Labelable server.
+
+```bash
+# Basic usage (--url is required)
+uv run labelable-bridge --url http://192.168.1.10:7979 --name rpi-ptouch
+
+# Custom USB vendor/product IDs
+uv run labelable-bridge --url http://labelable:7979 --vid 0x04F9 --pid 0x20AF
+
+# Serial number override (when USB device has no serial)
+uv run labelable-bridge --url http://labelable:7979 --serial MY-SERIAL-001
+
+# Verbose logging
+uv run labelable-bridge --url http://labelable:7979 --name rpi-ptouch -v
+```
+
+**How it works:**
+1. Finds the USB P-Touch printer and reads its serial number (or uses `--serial` fallback)
+2. Registers with Labelable via `POST /api/v1/bridge/register`
+3. Polls for jobs every 2s (`GET /bridge/{name}/job`), reports status every 15s
+4. All communication is outbound - no ports need to be opened on the bridge machine
+
+**Status reporting:**
+The daemon reports extended printer status including `media_kind`, `tape_colour`, `text_colour`, `low_battery`, and `errors` list to the server on each status interval.
+
+**RPi deployment:**
+```bash
+pip install "labelable[bridge]"
+labelable-bridge --url http://ha-host:7979 --name rpi-ptouch
 ```
 
 ## Font Management

@@ -1,5 +1,6 @@
 """REST API routes for Labelable."""
 
+import logging
 import secrets
 from datetime import datetime
 from typing import Any
@@ -8,8 +9,10 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from labelable.models.job import JobStatus, PrintJob
-from labelable.models.printer import PrinterType
+from labelable.models.printer import BridgeConnection, HealthcheckConfig, PrinterConfig, PrinterType
 from labelable.models.template import EngineType, TemplateConfig, TemplateField
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["api"])
 
@@ -304,6 +307,151 @@ async def get_job_status(job_id: str) -> PrintResponse:
 
     message = job.error_message or f"Job status: {job.status}"
     return PrintResponse(job_id=job_id, status=job.status, message=message)
+
+
+class BridgeRegisterRequest(BaseModel):
+    """Bridge daemon registration request."""
+
+    serial_number: str
+    printer_name: str = "ptouch-bridge"
+    tape_width_mm: int | None = None
+
+
+class BridgeRegisterResponse(BaseModel):
+    """Bridge daemon registration response."""
+
+    status: str
+    printer_name: str
+
+
+class BridgeStatusRequest(BaseModel):
+    """Daemon status report."""
+
+    online: bool
+    model_info: str | None = None
+    tape_width_mm: int | None = None
+    media_kind: str | None = None
+    tape_colour: str | None = None
+    text_colour: str | None = None
+    low_battery: bool | None = None
+    errors: list[str] = []
+
+
+class BridgeResultRequest(BaseModel):
+    """Daemon job result report."""
+
+    ok: bool
+    error: str | None = None
+
+
+def _get_bridge_printer(name: str) -> Any:
+    """Get a bridge printer by name, raising 404 if not found."""
+    from labelable.printers.bridge import BridgePTouchPrinter
+
+    printers = _app_state.get("printers", {})
+    printer = printers.get(name)
+    if printer is None:
+        raise HTTPException(status_code=404, detail=f"Bridge printer '{name}' not found")
+    if not isinstance(printer, BridgePTouchPrinter):
+        raise HTTPException(status_code=400, detail=f"Printer '{name}' is not a bridge printer")
+    return printer
+
+
+@router.post("/bridge/register", response_model=BridgeRegisterResponse)
+async def register_bridge(request: BridgeRegisterRequest) -> BridgeRegisterResponse:
+    """Register (or re-register) a bridge daemon as a printer.
+
+    Called by the bridge daemon on startup and periodically as a heartbeat.
+    Upserts by serial_number: if a bridge printer with the same serial exists,
+    returns its name; otherwise creates a new one.
+    """
+    from labelable.printers import BridgePTouchPrinter
+
+    # setdefault ensures the dict is stored in _app_state even if lifespan hasn't run
+    printers = _app_state.setdefault("printers", {})
+    queue = _app_state.get("queue")
+
+    # Find existing bridge printer with same serial number
+    existing_name: str | None = None
+    for name, printer in printers.items():
+        conn = printer.config.connection
+        if isinstance(conn, BridgeConnection) and conn.serial_number == request.serial_number:
+            existing_name = name
+            break
+
+    if existing_name:
+        logger.info(f"Bridge re-registered: {existing_name} (serial={request.serial_number})")
+        return BridgeRegisterResponse(status="registered", printer_name=existing_name)
+
+    # Create new printer
+    printer_name = request.printer_name
+
+    # Ensure unique name
+    if printer_name in printers:
+        suffix = 1
+        while f"{printer_name}-{suffix}" in printers:
+            suffix += 1
+        printer_name = f"{printer_name}-{suffix}"
+
+    connection = BridgeConnection(
+        serial_number=request.serial_number,
+        tape_width_mm=request.tape_width_mm,
+    )
+    config = PrinterConfig(
+        name=printer_name,
+        type=PrinterType.PTOUCH,
+        connection=connection,
+        healthcheck=HealthcheckConfig(interval=60),
+    )
+
+    new_printer = BridgePTouchPrinter(config)
+    await new_printer.connect()
+    printers[printer_name] = new_printer
+    if queue:
+        await queue.start_worker(new_printer)
+    logger.info(f"Bridge registered: {printer_name} (serial={request.serial_number})")
+
+    return BridgeRegisterResponse(status="registered", printer_name=printer_name)
+
+
+@router.get("/bridge/{name}/job")
+async def bridge_poll_job(name: str) -> Any:
+    """Daemon polls for a pending print job.
+
+    Returns raw bytes with 200 if a job is pending, or 204 No Content if not.
+    """
+    from fastapi.responses import Response
+
+    printer = _get_bridge_printer(name)
+    data = printer.take_pending_job()
+    if data is None:
+        return Response(status_code=204)
+    return Response(content=data, media_type="application/octet-stream")
+
+
+@router.post("/bridge/{name}/result")
+async def bridge_report_result(name: str, request: BridgeResultRequest) -> dict[str, str]:
+    """Daemon reports the result of a print job."""
+    printer = _get_bridge_printer(name)
+    printer.report_result(ok=request.ok, error=request.error)
+    return {"status": "ok"}
+
+
+@router.post("/bridge/{name}/status")
+async def bridge_report_status(name: str, request: BridgeStatusRequest) -> dict[str, str]:
+    """Daemon reports its current printer status."""
+    printer = _get_bridge_printer(name)
+    printer.report_status(
+        online=request.online,
+        model_info=request.model_info,
+        tape_width_mm=request.tape_width_mm,
+        media_kind=request.media_kind,
+        tape_colour=request.tape_colour,
+        text_colour=request.text_colour,
+        low_battery=request.low_battery,
+        errors=request.errors,
+    )
+    return {"status": "ok"}
 
 
 def _template_to_info(template: TemplateConfig) -> TemplateInfo:

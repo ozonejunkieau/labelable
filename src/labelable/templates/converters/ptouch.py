@@ -103,14 +103,14 @@ def image_to_ptouch_raster(
 
     # Rotate 90 CCW and mirror horizontally
     # This transforms the image so that columns become raster lines
-    rotated = image.rotate(90, expand=True).transpose(Image.FLIP_LEFT_RIGHT)
+    rotated = image.rotate(90, expand=True).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
     # Scale to fit printable area if wider than tape allows
     rot_w, rot_h = rotated.size
     if rot_h > printable_px:
         scale = printable_px / rot_h
         new_w = max(1, int(rot_w * scale))
-        rotated = rotated.resize((new_w, printable_px), Image.NEAREST)
+        rotated = rotated.resize((new_w, printable_px), Image.Resampling.NEAREST)
         rot_w, rot_h = rotated.size
 
     # Create 128px-wide canvas and center the content
@@ -194,7 +194,7 @@ def batch_image_to_ptouch_raster(
     # Scale only the tape direction (height) to fit printable area.
     # Width (feed direction) stays unchanged — each column = one raster line.
     if img_h != printable_px:
-        image = image.resize((img_w, printable_px), Image.NEAREST)
+        image = image.resize((img_w, printable_px), Image.Resampling.NEAREST)
         img_w, img_h = image.size
 
     pixels: list[int] = list(image.getdata())  # type: ignore[arg-type]
