@@ -23,6 +23,7 @@ dependencies = [
     "setuptools>=80.10.2",
     "fonttools>=4.61.1",
     "httpx>=0.28.0",
+    "pyusb>=1.3.1",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,7 @@ dev = [
 [project.scripts]
 labelable = "labelable.__main__:main"
 labelable-render = "labelable.cli.render:main"
+labelable-ptouch = "labelable.cli.ptouch:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -88,9 +88,10 @@ class TestImageTemplateEngine:
         assert image_engine.supports_printer_type("epl2")
         assert image_engine.supports_printer_type("EPL2")
 
-    def test_does_not_support_ptouch(self, image_engine):
-        """Engine should not support P-Touch printers."""
-        assert not image_engine.supports_printer_type("ptouch")
+    def test_supports_ptouch(self, image_engine):
+        """Engine should support P-Touch printers."""
+        assert image_engine.supports_printer_type("ptouch")
+        assert image_engine.supports_printer_type("PTOUCH")
 
     def test_render_rectangular_to_zpl(self, image_engine, rectangular_template):
         """Render rectangular template to ZPL format."""
@@ -175,3 +176,53 @@ class TestImageTemplateEngine:
 
         with pytest.raises(TemplateError):
             image_engine.render(rectangular_template, {}, output_format="zpl")
+
+    def test_render_ptouch_produces_bytes(self, image_engine):
+        """Render template to P-Touch raster format."""
+        template = TemplateConfig(
+            name="test-ptouch",
+            engine=EngineType.IMAGE,
+            dimensions=LabelDimensions(width_mm=24, height_mm=80),
+            dpi=180,
+            ptouch_tape_width_mm=24,
+            fields=[
+                TemplateField(name="title", type="string", required=True),
+            ],
+            elements=[
+                TextElement(
+                    type="text",
+                    field="title",
+                    bounds=BoundingBox(x_mm=2, y_mm=2, width_mm=20, height_mm=10),
+                    font_size=14,
+                ),
+            ],
+        )
+
+        output = image_engine.render(template, {"title": "Hello"}, output_format="ptouch")
+        assert isinstance(output, bytes)
+        assert len(output) > 0
+
+    def test_ptouch_starts_with_init(self, image_engine):
+        """P-Touch output should start with 64 null bytes (init sequence)."""
+        template = TemplateConfig(
+            name="test-ptouch-init",
+            engine=EngineType.IMAGE,
+            dimensions=LabelDimensions(width_mm=24, height_mm=40),
+            dpi=180,
+            ptouch_tape_width_mm=24,
+            fields=[
+                TemplateField(name="title", type="string", required=True),
+            ],
+            elements=[
+                TextElement(
+                    type="text",
+                    field="title",
+                    bounds=BoundingBox(x_mm=2, y_mm=2, width_mm=20, height_mm=10),
+                    font_size=14,
+                ),
+            ],
+        )
+
+        output = image_engine.render(template, {"title": "Test"}, output_format="ptouch")
+        # First 64 bytes should be null (CMD_INITIALIZE)
+        assert output[:64] == b"\x00" * 64

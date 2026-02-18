@@ -19,7 +19,7 @@ class ConnectionType(StrEnum):
 
     TCP = "tcp"
     SERIAL = "serial"
-    BLUETOOTH = "bluetooth"
+    USB = "usb"
     HA = "ha"
 
 
@@ -42,11 +42,12 @@ class SerialConnection(BaseModel):
     stopbits: float = 1
 
 
-class BluetoothConnection(BaseModel):
-    """Bluetooth connection configuration (for future P-Touch support)."""
+class USBConnection(BaseModel):
+    """USB connection configuration (for P-Touch printers)."""
 
-    type: Literal["bluetooth"] = "bluetooth"
-    address: str
+    type: Literal["usb"] = "usb"
+    vendor_id: int = 0x04F9  # Brother
+    product_id: int = 0x20AF  # PT-P710BT
 
 
 class HAConnection(BaseModel):
@@ -62,7 +63,7 @@ class HAConnection(BaseModel):
 
 
 ConnectionConfig = Annotated[
-    TCPConnection | SerialConnection | BluetoothConnection | HAConnection,
+    TCPConnection | SerialConnection | USBConnection | HAConnection,
     Field(discriminator="type"),
 ]
 

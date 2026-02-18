@@ -4,7 +4,7 @@ A general purpose label printing API and web UI for home use.
 
 ## Features
 
-- **Multiple Printer Support**: Zebra ZPL, Zebra EPL2, and Brother P-Touch (future)
+- **Multiple Printer Support**: Zebra ZPL, Zebra EPL2, and Brother P-Touch (USB)
 - **Two Template Engines**:
   - **Jinja**: Raw ZPL/EPL2 commands with Jinja2 templating
   - **Image**: Visual element-based rendering with QR codes, DataMatrix, text wrapping
@@ -177,6 +177,7 @@ uv run labelable-render templates/jar-label.yaml \
 | `select` | Radio buttons from predefined `options` list |
 | `datetime` | Auto-populated with current time (uses `format` for strftime) |
 | `user` | Auto-populated from Home Assistant user or `default_user` |
+| `list` | Newline-separated list (textarea in UI, used with batch config) |
 
 ### Built-in Template Variables
 
@@ -282,6 +283,7 @@ This automatically:
 |---------|------------|----------|
 | Zebra GK420d | Ethernet (TCP 9100) | ZPL |
 | Zebra LP2844 | RS232-WiFi adapter | EPL2 |
+| Brother PT-P710BT | USB | P-Touch PTCBP |
 
 ## Zebra Printer HA Integration
 
@@ -321,9 +323,7 @@ This allows Labelable to print via the HA integration's `zebra_printer.print_raw
 
 Planned features for future releases:
 
-- **Brother P-Touch Support**: Bitmap-based printing for Brother P-Touch label makers
 - **Print History**: Track recently printed labels with reprint functionality
-- **Web UI Preview**: In-browser label preview (CLI preview available now)
 
 ## About
 

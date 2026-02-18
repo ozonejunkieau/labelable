@@ -1180,6 +1180,8 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
             field_type = float
         elif field.type == FieldType.BOOLEAN:
             field_type = bool
+        elif field.type == FieldType.LIST:
+            field_type = str
         elif field.type == FieldType.SELECT and field.options:
             # Create enum for select fields (renders as radio buttons)
             # Filter out empty strings and use "None" as the display name for empty option
@@ -1195,11 +1197,12 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
 
         # Add asterisk for required fields, include description
         base_title = field.name.replace("_", " ").title()
+        extra_schema = {"format": "textarea"} if field.type == FieldType.LIST else None
         if field.required and field.default is None:
             title = f"{base_title} *"
             fields[field.name] = (
                 field_type,
-                Field(title=title, description=field.description or None),
+                Field(title=title, description=field.description or None, json_schema_extra=extra_schema),
             )
         else:
             fields[field.name] = (
@@ -1208,6 +1211,7 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
                     default=field.default,
                     title=base_title,
                     description=field.description or None,
+                    json_schema_extra=extra_schema,
                 ),
             )
 

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections.
+Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections, and Brother P-Touch label printers via USB.
 
 ## Development Setup
 
@@ -42,7 +42,8 @@ src/labelable/
 │   ├── base.py         # Abstract Printer interface with cached status
 │   ├── zpl.py          # Zebra ZPL (TCP/serial/HA)
 │   ├── epl2.py         # Zebra EPL2 (TCP/serial/HA)
-│   └── ptouch.py       # Brother P-Touch (stubbed)
+│   ├── ptouch.py       # Brother P-Touch (USB via PyUSB)
+│   └── ptouch_protocol.py # P-Touch PTCBP raster protocol
 ├── templates/          # Template engines
 │   ├── engine.py       # Abstract TemplateEngine
 │   ├── jinja_engine.py # Jinja2 implementation (raw ZPL/EPL2)
@@ -51,16 +52,19 @@ src/labelable/
 │   │   ├── base.py     # BaseElementRenderer ABC
 │   │   ├── text.py     # Text with wrap/scale/circle-aware
 │   │   ├── qrcode.py   # QR code via qrcode library
-│   │   └── datamatrix.py # DataMatrix via pylibdmtx
+│   │   ├── datamatrix.py # DataMatrix via pylibdmtx
+│   │   └── code128.py  # Code 128 barcode via python-barcode
 │   ├── converters/     # Bitmap format converters
 │   │   ├── zpl.py      # Image → ZPL ^GFA command
-│   │   └── epl2.py     # Image → EPL2 GW command
+│   │   ├── epl2.py     # Image → EPL2 GW command
+│   │   └── ptouch.py   # Image → P-Touch raster (PackBits)
 │   ├── fonts/          # Font management
 │   │   └── __init__.py # FontManager class
 │   ├── font_manifest.py # Font metadata extraction
 │   └── google_fonts.py # Google Fonts downloader
 ├── cli/                # CLI tools
-│   └── render.py       # labelable-render preview tool
+│   ├── render.py       # labelable-render preview tool
+│   └── ptouch.py       # labelable-ptouch USB printer tool
 └── api/
     ├── routes.py       # REST API endpoints
     └── ui.py           # FastUI web interface
@@ -76,7 +80,10 @@ custom_components/zebra_printer/   # HA Custom Integration
 ├── sensor.py           # Model, firmware, labels_printed, etc.
 ├── services.py         # print_raw, calibrate, feed handlers
 ├── services.yaml       # Service definitions for UI
+├── button.py           # Calibrate, feed button entities
+├── select.py           # Print density, media type selects
 ├── strings.json        # Config flow UI strings
+├── hacs.json           # HACS repository metadata
 ├── translations/       # Localization
 └── protocol/           # Printer protocol implementations
     ├── base.py         # Abstract protocol + PrinterStatus dataclass
@@ -114,6 +121,13 @@ printers:
     healthcheck:
       interval: 60
       command: "UQ"
+
+  - name: ptouch
+    type: ptouch
+    connection:
+      type: usb
+      # vid: 0x04F9  # Brother vendor ID (default)
+      # pid: 0x20AF  # P710BT product ID (default)
 
   # HA Integration connection (uses zebra_printer integration as transport)
   - name: ha-printer
@@ -173,6 +187,7 @@ Templates are YAML files supporting two engines:
 - `select` - Radio buttons (predefined options list)
 - `datetime` - Auto-populated with current timestamp (uses `format` for strftime)
 - `user` - Auto-populated from Home Assistant user (via `X-Remote-User-Display-Name` header)
+- `list` - Newline-separated list of values (textarea in UI, used with batch config)
 
 **Jinja Engine Example:**
 ```yaml
@@ -249,6 +264,79 @@ elements:
     y_mm: 35
     size_mm: 12
 ```
+
+**P-Touch Image Engine Example (continuous tape):**
+```yaml
+name: ptouch-label
+description: Label for P-Touch continuous tape
+engine: image
+dimensions:
+  width_mm: 9       # Tape width (print head direction)
+  height_mm: 50     # Max label length (cropped to content)
+dpi: 180            # P-Touch uses 180 DPI
+supported_printers:
+  - ptouch
+ptouch_tape_width_mm: 9    # 6, 9, 12, 18, or 24
+ptouch_auto_cut: true       # Auto-cut after printing
+ptouch_chain_print: false   # Hold label in printer (no feed)
+ptouch_margin_mm: 3.0       # Padding around content
+fields:
+  - name: title
+    type: string
+    required: true
+elements:
+  - type: text
+    field: title
+    bounds:
+      x_mm: 0
+      y_mm: 2
+      width_mm: 9
+      height_mm: 7
+    font_size: 72
+    alignment: center
+    vertical_align: middle
+    auto_scale: true
+```
+
+**Batch Label Example (multiple labels from a list):**
+```yaml
+name: heatshrink-signals
+description: Heatshrink labels for signal wires
+engine: image
+dimensions:
+  width_mm: 9
+  height_mm: 50
+dpi: 180
+supported_printers:
+  - ptouch
+ptouch_tape_width_mm: 9
+ptouch_auto_cut: true
+ptouch_margin_mm: 1.0
+batch:
+  alignment: center   # left, center, or right along label length
+  cut_lines: true      # 1px black lines between labels
+  padding_mm: 1.5      # Padding around each label in the strip
+  min_label_length_mm: 0  # Minimum label length (0 = auto)
+fields:
+  - name: signals
+    type: list         # Renders as textarea in UI, splits on newlines
+    required: true
+    description: "One signal name per line"
+elements:
+  - type: text
+    field: signals
+    bounds:
+      x_mm: 0
+      y_mm: 0
+      width_mm: 9
+      height_mm: 50
+    font: MartianMono-Medium
+    font_size: 72
+    alignment: center
+    auto_scale: true
+```
+
+Batch mode is auto-detected when a template has `batch` config and a `list` field. All labels are rendered as one image strip with uniform-width labels. The UI shows a textarea for the list field; the CLI accepts `-d signals="GND\nVCC\nSDA"` or `--list-file signals=file.txt`.
 
 ## Key Design Patterns
 
@@ -336,6 +424,21 @@ Note: Replace `localhost:7979` with the add-on's internal hostname if accessing 
 - `B` - Barcode
 - `P` - Print label
 
+### P-Touch PTCBP (Brother Raster Protocol)
+- Print head: 128 pixels wide (16 bytes/line), 180 DPI
+- `ESC @` - Reset printer
+- `ESC i a 0x01` - Enter raster mode
+- `ESC i S` - Request status (returns 32 bytes)
+- `ESC i z` - Print info (media width, raster line count)
+- `ESC i M` - Mode (auto-cut flag in bit 6)
+- `ESC i K` - Advanced mode (`0x08` = no chain/feed out, `0x00` = chain/hold)
+- `ESC i d` - Feed margin (14 dots with auto-cut, 0 without)
+- `M 0x02` / `M 0x00` - TIFF compression on/off
+- `G <len_le16> <data>` - Compressed raster line
+- `g <len_le16> <data>` - Uncompressed raster line
+- `Z` - Blank raster line
+- `0x1A` (SUB) - Print and feed
+
 ## CLI Tools
 
 ### labelable-render
@@ -367,6 +470,33 @@ uv run labelable-render templates/jar-label.yaml \
 uv run labelable-render templates/my-template.yaml \
   --download-fonts \
   -o preview.png
+```
+
+### labelable-ptouch
+
+Query status and print labels on Brother P-Touch USB printers:
+
+```bash
+# Query printer status
+uv run labelable-ptouch status
+
+# Print a label
+uv run labelable-ptouch print templates/ptouch-label.yaml -d title="Hello"
+
+# Preview (save cropped PNG instead of printing)
+uv run labelable-ptouch print templates/ptouch-label.yaml -d title="Hello" --preview preview.png
+
+# Dump raw raster bytes for debugging
+uv run labelable-ptouch print templates/ptouch-label.yaml -d title="Hello" --dump raw.bin
+
+# Batch print from inline list (newline-escaped)
+uv run labelable-ptouch print templates/heatshrink-signals.yaml -d signals="GND\nVCC\nSDA\nSCL"
+
+# Batch print from file (one item per line)
+uv run labelable-ptouch print templates/heatshrink-signals.yaml --list-file signals=signals.txt
+
+# Use custom USB vendor/product IDs
+uv run labelable-ptouch status --vid 0x04F9 --pid 0x20AF
 ```
 
 ## Font Management

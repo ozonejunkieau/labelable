@@ -20,6 +20,7 @@ class FieldType(StrEnum):
     DATETIME = "datetime"
     USER = "user"
     SELECT = "select"  # Enum/select with predefined options
+    LIST = "list"  # Newline-separated list of values (textarea in UI)
 
 
 class EngineType(StrEnum):
@@ -146,6 +147,24 @@ LabelElement = Annotated[
 ]
 
 
+class BatchAlignment(StrEnum):
+    """Alignment of text along the label length in batch mode."""
+
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+
+
+class BatchConfig(BaseModel):
+    """Configuration for batch label printing (multiple labels from a list)."""
+
+    alignment: BatchAlignment = BatchAlignment.CENTER
+    cut_lines: bool = True
+    padding_mm: float = 1.0
+    min_label_length_mm: float = 0
+    margin_mm: float = 1.0  # Top/bottom margin within tape width
+
+
 class LabelDimensions(BaseModel):
     """Label dimensions in millimeters."""
 
@@ -191,6 +210,15 @@ class TemplateConfig(BaseModel):
     # Print settings
     darkness: int | None = None  # Print darkness 0-30 (ZPL ~SD command)
 
+    # P-Touch settings (for continuous tape printers)
+    ptouch_tape_width_mm: int | None = None  # 6, 9, 12, 18, or 24
+    ptouch_auto_cut: bool = True
+    ptouch_chain_print: bool = False  # Hold label in printer (don't feed after print)
+    ptouch_margin_mm: float = 1.0  # Padding around content before cropping
+
+    # Batch printing settings (for printing multiple labels from a list field)
+    batch: BatchConfig | None = None
+
     def get_field(self, name: str) -> TemplateField | None:
         """Get a field by name."""
         for field in self.fields:
@@ -235,6 +263,8 @@ class TemplateConfig(BaseModel):
                         result[field.name] = value.lower() in ("true", "1", "yes", "on")
                     else:
                         result[field.name] = bool(value)
+                elif field.type == FieldType.LIST:
+                    result[field.name] = str(value)
                 else:
                     result[field.name] = str(value)
             elif field.default is not None:

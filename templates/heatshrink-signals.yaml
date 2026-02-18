@@ -1,0 +1,32 @@
+description: Heatshrink labels for signal wires
+engine: image
+dimensions:
+  width_mm: 9
+  height_mm: 50
+dpi: 180
+supported_printers:
+  - ptouch
+ptouch_tape_width_mm: 9
+ptouch_auto_cut: true
+ptouch_margin_mm: 1.0
+batch:
+  alignment: center
+  cut_lines: true
+  padding_mm: 1.5
+fields:
+  - name: signals
+    type: list
+    required: true
+    description: "One signal name per line"
+elements:
+  - type: text
+    field: signals
+    bounds:
+      x_mm: 0
+      y_mm: 0
+      width_mm: 9
+      height_mm: 50
+    font: MartianMono-Medium
+    font_size: 72
+    alignment: center
+    auto_scale: true
