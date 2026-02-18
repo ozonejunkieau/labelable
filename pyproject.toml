@@ -38,6 +38,7 @@ dev = [
 labelable = "labelable.__main__:main"
 labelable-render = "labelable.cli.render:main"
 labelable-ptouch = "labelable.cli.ptouch:main"
+labelable-bridge = "labelable.cli.bridge:main"
 
 [build-system]
 requires = ["hatchling"]

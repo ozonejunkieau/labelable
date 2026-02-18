@@ -21,6 +21,7 @@ class ConnectionType(StrEnum):
     SERIAL = "serial"
     USB = "usb"
     HA = "ha"
+    BRIDGE = "bridge"
 
 
 class TCPConnection(BaseModel):
@@ -62,8 +63,20 @@ class HAConnection(BaseModel):
     ha_token: str | None = None  # Optional if running as addon (uses SUPERVISOR_TOKEN)
 
 
+class BridgeConnection(BaseModel):
+    """Bridge daemon connection for remote P-Touch USB printers.
+
+    The bridge daemon runs on a machine with the USB printer attached
+    and polls the Labelable server for print jobs. No inbound ports needed.
+    """
+
+    type: Literal["bridge"] = "bridge"
+    serial_number: str  # USB serial for identity across restarts/IP changes
+    tape_width_mm: int | None = None
+
+
 ConnectionConfig = Annotated[
-    TCPConnection | SerialConnection | USBConnection | HAConnection,
+    TCPConnection | SerialConnection | USBConnection | HAConnection | BridgeConnection,
     Field(discriminator="type"),
 ]
 
