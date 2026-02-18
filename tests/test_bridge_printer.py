@@ -1,7 +1,7 @@
 """Tests for BridgePTouchPrinter."""
 
 import asyncio
-import time
+from unittest.mock import patch
 
 import pytest
 
@@ -50,10 +50,14 @@ class TestBridgePTouchPrinter:
     async def test_is_online_returns_false_when_stale(self):
         config = _make_bridge_config()
         printer = BridgePTouchPrinter(config)
-        printer.report_status(online=True)
-        # Backdate the status time to simulate staleness
-        printer._last_status_time = time.monotonic() - DAEMON_STALE_TIMEOUT - 1
-        assert await printer.is_online() is False
+        # Use a fixed time base so the test works on fresh CI containers
+        # where time.monotonic() may be very small
+        base_time = 1000.0
+        with patch("time.monotonic", return_value=base_time):
+            printer.report_status(online=True)
+        # Now advance time past the stale threshold
+        with patch("time.monotonic", return_value=base_time + DAEMON_STALE_TIMEOUT + 60):
+            assert await printer.is_online() is False
 
     async def test_get_media_size_from_config(self):
         config = _make_bridge_config(tape_width_mm=9)

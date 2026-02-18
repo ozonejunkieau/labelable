@@ -1,14 +1,33 @@
 # Changelog
 
-## 0.2.1-dev5
+## 0.3.0
 
+### Brother P-Touch Raster Printing
+- Add P-Touch raster printing support for Brother USB label printers
+  - PTCBP raster protocol with PackBits TIFF compression
+  - Status querying (media width, tape type, errors, battery)
+  - Auto-cut, chain print, and margin control
+- Add batch label rendering for continuous tape
+  - Column-by-column rasterizer for multi-label strips
+  - Configurable alignment, cut lines, and padding
+  - `list` field type for batch data input
+- Add `labelable-ptouch` CLI for direct USB printing and status queries
+
+### Bridge Daemon for Remote P-Touch Printers
+- Add bridge daemon (`labelable-bridge`) for relay printing to remote USB printers
+  - Long-polling architecture: daemon polls server for jobs, no inbound ports needed
+  - Extended status reporting: media kind, tape/text colour, battery, errors
+  - Auto re-registration on server restart
+  - `--serial` fallback for USB devices without serial numbers
+- Add bridge API endpoints for daemon registration, job polling, and status reporting
+- Bridge printers appear alongside local printers in the UI
+
+### Other Changes
 - Add Code 128 linear barcode element for image templates
-  - New `code128` element type with `height_mm` and `module_width_mm` options
-  - Support for `prefix` and `suffix` on barcode content
-  - Regression tests for barcode dimensions and module width preservation
-- Add `prefix` and `suffix` options to QR code and DataMatrix elements
+- Add `prefix` and `suffix` options to QR code, DataMatrix, and Code 128 elements
 - Fix Google Fonts name extraction for acronyms (e.g., "PTSans" → "PT Sans")
-- Add `python-barcode` dependency
+- Remove server-side mDNS advertisement (no longer needed)
+- Improve USB type hints in P-Touch printer (replace `Any` with proper PyUSB types)
 
 ## 0.2.1-dev4
 
