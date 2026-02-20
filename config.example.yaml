@@ -23,6 +23,11 @@ user_mapping:
 # Default user when not accessed via HA or user not in mapping
 default_user: ""
 
+# Enable MCP server for AI assistant integration (optional)
+# Mounts at /mcp using Streamable HTTP transport
+# Requires: uv sync --group mcp
+# mcp_enabled: true
+
 # Printer definitions
 printers:
   # ZPL printer over TCP

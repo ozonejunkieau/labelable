@@ -3,10 +3,11 @@
 import asyncio
 import logging
 import sys
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from starlette.routing import Route
 
 from labelable.api import routes as api_routes
 from labelable.api import ui as ui_routes
@@ -144,55 +145,73 @@ async def lifespan(app: FastAPI):
         template_warnings=_template_warnings,
     )
 
-    # Mount MCP server if enabled
-    if _config.mcp_enabled:
-        try:
-            from labelable.api.mcp_server import create_mcp_server
-            from labelable.api.mcp_server import set_app_state as mcp_set_state
+    async with AsyncExitStack() as stack:
+        # Mount MCP server if enabled
+        if _config.mcp_enabled:
+            try:
+                from mcp.server.fastmcp.server import StreamableHTTPASGIApp
+                from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
-            mcp_set_state(
-                _printers,
-                _templates,
-                _queue,
-                _jinja_engine,
-                _image_engine,
-                api_key=_config.api_key,
-                templates_path=templates_path,
-            )
-            mcp = create_mcp_server()
-            app.mount("/mcp", mcp.streamable_http_app())
-            logger.info("MCP server mounted at /mcp")
-        except ImportError:
-            logger.warning("MCP enabled but 'mcp' package not installed. Install with: uv sync --group mcp")
+                from labelable.api.mcp_server import create_mcp_server
+                from labelable.api.mcp_server import set_app_state as mcp_set_state
 
-    # Start TLS cert file watcher if SSL is configured
-    cert_watcher_task = None
-    if settings.ssl_certfile and settings.ssl_keyfile:
-        cert_watcher_task = asyncio.create_task(_watch_cert_files(settings.ssl_certfile, settings.ssl_keyfile))
+                mcp_set_state(
+                    _printers,
+                    _templates,
+                    _queue,
+                    _jinja_engine,
+                    _image_engine,
+                    api_key=_config.api_key,
+                    templates_path=templates_path,
+                )
+                mcp = create_mcp_server()
 
-    logger.info("Labelable startup complete")
+                # Manage session manager lifecycle directly (bypass streamable_http_app()
+                # which bundles its own lifespan and internal /mcp route that don't work
+                # when mounted as a sub-app)
+                session_manager = StreamableHTTPSessionManager(
+                    app=mcp._mcp_server,
+                    json_response=False,
+                    stateless=True,
+                )
+                await stack.enter_async_context(session_manager.run())
 
-    yield
+                # Add route before the catch-all SPA route; leave methods unset
+                # so Starlette treats the endpoint as ASGI (accepts all methods)
+                mcp_asgi_app = StreamableHTTPASGIApp(session_manager)
+                app.router.routes.insert(0, Route("/mcp", endpoint=mcp_asgi_app))
+                logger.info("MCP server mounted at /mcp")
+            except ImportError:
+                logger.warning("MCP enabled but 'mcp' package not installed. Install with: uv sync --group mcp")
 
-    # Shutdown
-    logger.info("Labelable shutting down")
+        # Start TLS cert file watcher if SSL is configured
+        cert_watcher_task = None
+        if settings.ssl_certfile and settings.ssl_keyfile:
+            cert_watcher_task = asyncio.create_task(_watch_cert_files(settings.ssl_certfile, settings.ssl_keyfile))
 
-    # Cancel cert watcher
-    if cert_watcher_task:
-        cert_watcher_task.cancel()
+        logger.info("Labelable startup complete")
 
-    # Stop queue workers
-    if _queue:
-        await _queue.stop_all()
+        yield
 
-    # Disconnect printers
-    for printer in _printers.values():
-        try:
-            await printer.disconnect()
-        except Exception as e:
-            logger.error(f"Error disconnecting printer {printer.name}: {e}")
+        # Shutdown
+        logger.info("Labelable shutting down")
 
-    logger.info("Labelable shutdown complete")
+        # Cancel cert watcher
+        if cert_watcher_task:
+            cert_watcher_task.cancel()
+
+        # Stop queue workers
+        if _queue:
+            await _queue.stop_all()
+
+        # Disconnect printers
+        for printer in _printers.values():
+            try:
+                await printer.disconnect()
+            except Exception as e:
+                logger.error(f"Error disconnecting printer {printer.name}: {e}")
+
+        logger.info("Labelable shutdown complete")
 
 
 def create_app() -> FastAPI:

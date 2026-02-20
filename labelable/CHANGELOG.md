@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1-dev2
+
+- Fix MCP server not responding (was mounted incorrectly as sub-app)
+  - Manage StreamableHTTPSessionManager lifecycle directly in app lifespan
+  - Add route before catch-all SPA handler so `/mcp` is reachable
+- Add MCP config example to `config.example.yaml`
+
 ## 0.4.1-dev1
 
 - Add optional TLS/HTTPS support using Let's Encrypt certificates
