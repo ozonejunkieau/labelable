@@ -1,3 +1,4 @@
+name: ptouch-test
 description: P-Touch test label
 engine: image
 dimensions:

@@ -1,3 +1,4 @@
+name: heatshrink-signals
 description: Heatshrink labels for signal wires
 engine: image
 dimensions:
