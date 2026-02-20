@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     port: int = 7979
     debug: bool = False
     show_user_debug: bool = True  # Show HA user ID on home page for debugging user_mapping
+    ssl_certfile: Path | None = None
+    ssl_keyfile: Path | None = None
 
 
 def load_config(config_path: Path) -> AppConfig:

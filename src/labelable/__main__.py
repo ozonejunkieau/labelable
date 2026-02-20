@@ -54,6 +54,12 @@ def main() -> int:
         "reload": settings.debug,
     }
 
+    # SSL/TLS configuration
+    if settings.ssl_certfile and settings.ssl_keyfile:
+        uvicorn_kwargs["ssl_certfile"] = str(settings.ssl_certfile)
+        uvicorn_kwargs["ssl_keyfile"] = str(settings.ssl_keyfile)
+        logging.getLogger(__name__).info(f"HTTPS enabled (cert={settings.ssl_certfile}, key={settings.ssl_keyfile})")
+
     # In debug mode, watch templates directory for changes
     if settings.debug:
         config = load_config(settings.config_file)

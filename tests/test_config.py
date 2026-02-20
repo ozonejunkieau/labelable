@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from labelable.config import AppConfig, load_templates
+from labelable.config import AppConfig, Settings, load_templates
 from labelable.models.template import EngineType
 
 
@@ -227,3 +227,21 @@ class TestAppConfig:
 
         assert config.download_google_fonts is False
         assert config.fonts_dir == Path("fonts")
+
+
+class TestSettings:
+    """Tests for Settings (environment-based)."""
+
+    def test_ssl_defaults_to_none(self):
+        """SSL cert/key fields default to None."""
+        s = Settings(config_file="config.yaml")
+        assert s.ssl_certfile is None
+        assert s.ssl_keyfile is None
+
+    def test_ssl_from_env(self, monkeypatch):
+        """SSL cert/key fields can be set via env vars."""
+        monkeypatch.setenv("LABELABLE_SSL_CERTFILE", "/ssl/fullchain.pem")
+        monkeypatch.setenv("LABELABLE_SSL_KEYFILE", "/ssl/privkey.pem")
+        s = Settings(config_file="config.yaml")
+        assert s.ssl_certfile == Path("/ssl/fullchain.pem")
+        assert s.ssl_keyfile == Path("/ssl/privkey.pem")

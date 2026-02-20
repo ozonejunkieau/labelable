@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1-dev1
+
+- Add optional TLS/HTTPS support using Let's Encrypt certificates
+  - Enable with `ssl: true` in add-on configuration
+  - Auto-restart when certificate files change (for seamless renewal)
+  - Non-HA usage: set `LABELABLE_SSL_CERTFILE` and `LABELABLE_SSL_KEYFILE` env vars
+
 ## 0.4.0
 
 - Add MCP server for AI assistant integration (opt-in via `mcp_enabled: true`)

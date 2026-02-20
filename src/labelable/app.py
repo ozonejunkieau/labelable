@@ -1,6 +1,8 @@
 """FastAPI application factory for Labelable."""
 
+import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -44,6 +46,24 @@ _queue: PrintQueue | None = None
 _jinja_engine: JinjaTemplateEngine | None = None
 _image_engine: ImageTemplateEngine | None = None
 _config: AppConfig | None = None
+
+
+async def _watch_cert_files(certfile: Path, keyfile: Path) -> None:
+    """Watch TLS cert files and exit when they change, triggering a restart."""
+    cert_mtime = certfile.stat().st_mtime
+    key_mtime = keyfile.stat().st_mtime
+    logger.info("Watching TLS certificate files for changes")
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            new_cert_mtime = certfile.stat().st_mtime
+            new_key_mtime = keyfile.stat().st_mtime
+            if new_cert_mtime != cert_mtime or new_key_mtime != key_mtime:
+                logger.info("Certificate files changed, shutting down for restart...")
+                sys.exit(0)
+        except OSError:
+            pass
 
 
 @asynccontextmanager
@@ -145,12 +165,21 @@ async def lifespan(app: FastAPI):
         except ImportError:
             logger.warning("MCP enabled but 'mcp' package not installed. Install with: uv sync --group mcp")
 
+    # Start TLS cert file watcher if SSL is configured
+    cert_watcher_task = None
+    if settings.ssl_certfile and settings.ssl_keyfile:
+        cert_watcher_task = asyncio.create_task(_watch_cert_files(settings.ssl_certfile, settings.ssl_keyfile))
+
     logger.info("Labelable startup complete")
 
     yield
 
     # Shutdown
     logger.info("Labelable shutting down")
+
+    # Cancel cert watcher
+    if cert_watcher_task:
+        cert_watcher_task.cancel()
 
     # Stop queue workers
     if _queue:

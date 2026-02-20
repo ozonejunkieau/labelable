@@ -201,6 +201,26 @@ When enabled, the MCP server is mounted at `/mcp` (Streamable HTTP transport, st
 
 If `mcp_enabled` is true but the `mcp` package is not installed, a warning is logged and the server starts without MCP.
 
+### TLS / HTTPS
+
+Enable HTTPS for the API and web UI using TLS certificates (e.g., from the Let's Encrypt add-on).
+
+**Home Assistant add-on:**
+1. Install and configure the Let's Encrypt add-on (writes certs to `/ssl/`)
+2. Set `ssl: true` in the Labelable add-on configuration
+3. The add-on will serve HTTPS on port 7979
+
+**Certificate renewal:**
+When cert files change on disk (e.g., after Let's Encrypt renewal), the add-on automatically restarts within 60 seconds to pick up the new certificates. The HA supervisor handles the restart.
+
+**Non-HA usage:**
+Set environment variables directly:
+```bash
+export LABELABLE_SSL_CERTFILE=/path/to/fullchain.pem
+export LABELABLE_SSL_KEYFILE=/path/to/privkey.pem
+uv run labelable
+```
+
 ### Template Files (templates/*.yaml)
 
 Templates are YAML files supporting two engines:

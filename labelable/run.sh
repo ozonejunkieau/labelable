@@ -61,6 +61,17 @@ if [ -z "$(ls -A "$TEMPLATES_DIR" 2>/dev/null)" ]; then
     fi
 fi
 
+# TLS/SSL configuration (opt-in)
+if bashio::config.true 'ssl'; then
+    if [ -f "/ssl/fullchain.pem" ] && [ -f "/ssl/privkey.pem" ]; then
+        export LABELABLE_SSL_CERTFILE="/ssl/fullchain.pem"
+        export LABELABLE_SSL_KEYFILE="/ssl/privkey.pem"
+        bashio::log.info "TLS enabled using certificates from /ssl/"
+    else
+        bashio::log.warning "SSL enabled but certificate files not found in /ssl/"
+    fi
+fi
+
 bashio::log.info "Starting Labelable..."
 bashio::log.info "Config file: $CONFIG_FILE"
 bashio::log.info "Templates directory: $TEMPLATES_DIR"
