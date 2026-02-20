@@ -69,6 +69,8 @@ src/labelable/
 │   └── bridge.py       # labelable-bridge USB relay daemon
 └── api/
     ├── routes.py       # REST API endpoints
+    ├── template_crud.py # Shared template CRUD logic (validation, disk I/O)
+    ├── mcp_server.py   # MCP server tools (opt-in via mcp_enabled config)
     └── ui.py           # FastUI web interface
 
 custom_components/zebra_printer/   # HA Custom Integration
@@ -184,6 +186,20 @@ printers: []
 
 **Discovered printer naming:**
 - Printers are named with `ha-` prefix: `ha-{device_name}` (e.g., `ha-warehouse_printer`)
+
+### MCP Server (optional)
+
+Enable the built-in MCP server to allow AI assistants to interact with printers and templates:
+
+```yaml
+mcp_enabled: true
+```
+
+Install the MCP dependency: `uv sync --group mcp`
+
+When enabled, the MCP server is mounted at `/mcp` (Streamable HTTP transport, stateless mode). It exposes 6 tools: `list_printers`, `list_templates`, `get_template`, `print_label`, `create_template`, `update_template`.
+
+If `mcp_enabled` is true but the `mcp` package is not installed, a warning is logged and the server starts without MCP.
 
 ### Template Files (templates/*.yaml)
 
@@ -416,6 +432,8 @@ Note: Replace `localhost:7979` with the add-on's internal hostname if accessing 
 | GET | `/api/v1/printers` | List printers with status |
 | GET | `/api/v1/templates` | List available templates |
 | GET | `/api/v1/templates/{name}` | Get template details |
+| POST | `/api/v1/templates` | Create new template (JSON body) |
+| PUT | `/api/v1/templates/{name}` | Update existing template (JSON body) |
 | POST | `/api/v1/print/{template}` | Submit print job |
 | POST | `/api/v1/bridge/register` | Register bridge daemon |
 | GET | `/api/v1/bridge/{name}/job` | Daemon polls for pending job |

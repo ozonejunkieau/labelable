@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- Add MCP server for AI assistant integration (opt-in via `mcp_enabled: true`)
+  - Tools: list_printers, list_templates, get_template, print_label, create_template, update_template
+  - Streamable HTTP transport at `/mcp`, install with `uv sync --group mcp`
+- Add template CRUD API endpoints
+  - `POST /api/v1/templates` to create new templates (validates schema, writes YAML to disk)
+  - `PUT /api/v1/templates/{name}` to update existing templates
+- Template name validation and path traversal protection
+- Written template files are set to 0644 permissions (no execute)
+
 ## 0.3.0
 
 ### Brother P-Touch Raster Printing

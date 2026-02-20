@@ -36,6 +36,8 @@ class AppConfig(BaseModel):
     api_key: str | None = None
     # Enable automatic Google Fonts downloading
     download_google_fonts: bool = False
+    # Enable MCP server (mounted at /mcp)
+    mcp_enabled: bool = False
 
 
 class Settings(BaseSettings):

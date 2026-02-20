@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
+from labelable.api.template_crud import TemplateCRUDError, create_template_on_disk, update_template_on_disk
 from labelable.models.job import JobStatus, PrintJob
 from labelable.models.printer import BridgeConnection, HealthcheckConfig, PrinterConfig, PrinterType
 from labelable.models.template import EngineType, TemplateConfig, TemplateField
@@ -27,6 +28,7 @@ def set_app_state(
     jinja_engine: Any,
     image_engine: Any = None,
     api_key: str | None = None,
+    templates_path: Any = None,
 ) -> None:
     """Set application state references for the routes."""
     _app_state["printers"] = printers
@@ -35,6 +37,7 @@ def set_app_state(
     _app_state["jinja_engine"] = jinja_engine
     _app_state["image_engine"] = image_engine
     _app_state["api_key"] = api_key
+    _app_state["templates_path"] = templates_path
 
 
 async def verify_api_key(request: Request) -> None:
@@ -103,6 +106,14 @@ class TemplateInfo(BaseModel):
     height_mm: float
     supported_printers: list[str]  # Printer names
     fields: list[TemplateField]
+
+
+class TemplateCreateResponse(BaseModel):
+    """Response for template create/update operations."""
+
+    name: str
+    status: str  # "created" or "updated"
+    message: str
 
 
 class PrintRequest(BaseModel):
@@ -184,6 +195,62 @@ async def get_template(name: str) -> TemplateInfo:
         raise HTTPException(status_code=404, detail=f"Template '{name}' not found")
 
     return _template_to_info(templates[name])
+
+
+@router.post(
+    "/templates",
+    response_model=TemplateCreateResponse,
+    status_code=201,
+    responses={
+        201: {"description": "Template created"},
+        400: {"description": "Invalid template name"},
+        409: {"description": "Template already exists"},
+    },
+)
+async def create_template(template: TemplateConfig) -> TemplateCreateResponse:
+    """Create a new template."""
+    templates = _app_state.setdefault("templates", {})
+    templates_path = _app_state.get("templates_path")
+    if templates_path is None:
+        raise HTTPException(status_code=500, detail="Templates path not configured")
+
+    try:
+        create_template_on_disk(template, templates_path, templates)
+    except TemplateCRUDError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+    return TemplateCreateResponse(
+        name=template.name,
+        status="created",
+        message=f"Template '{template.name}' created",
+    )
+
+
+@router.put(
+    "/templates/{name}",
+    response_model=TemplateCreateResponse,
+    responses={
+        200: {"description": "Template updated"},
+        404: {"description": "Template not found"},
+    },
+)
+async def update_template(name: str, template: TemplateConfig) -> TemplateCreateResponse:
+    """Update an existing template."""
+    templates = _app_state.setdefault("templates", {})
+    templates_path = _app_state.get("templates_path")
+    if templates_path is None:
+        raise HTTPException(status_code=500, detail="Templates path not configured")
+
+    try:
+        update_template_on_disk(name, template, templates_path, templates)
+    except TemplateCRUDError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+    return TemplateCreateResponse(
+        name=template.name,
+        status="updated",
+        message=f"Template '{name}' updated",
+    )
 
 
 @router.post(

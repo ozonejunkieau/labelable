@@ -1,6 +1,6 @@
 [project]
 name = "labelable"
-version = "0.3.0"
+version = "0.4.0"
 description = "A general purpose label printing API and basic UI"
 readme = "README.md"
 license = "MIT"
@@ -61,6 +61,10 @@ select = ["E", "F", "I", "UP", "B"]
 [dependency-groups]
 dev = [
     "basedpyright>=1.37.4",
+    "mcp>=1.20.0",
+]
+mcp = [
+    "mcp>=1.20.0",
 ]
 
 [tool.uv]

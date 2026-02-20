@@ -103,7 +103,15 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to initialize printer {printer_config.name}: {e}")
 
     # Set state for routes
-    api_routes.set_app_state(_printers, _templates, _queue, _jinja_engine, _image_engine, api_key=_config.api_key)
+    api_routes.set_app_state(
+        _printers,
+        _templates,
+        _queue,
+        _jinja_engine,
+        _image_engine,
+        api_key=_config.api_key,
+        templates_path=templates_path,
+    )
     ui_routes.set_app_state(
         _printers,
         _templates,
@@ -115,6 +123,27 @@ async def lifespan(app: FastAPI):
         templates_path=templates_path,
         template_warnings=_template_warnings,
     )
+
+    # Mount MCP server if enabled
+    if _config.mcp_enabled:
+        try:
+            from labelable.api.mcp_server import create_mcp_server
+            from labelable.api.mcp_server import set_app_state as mcp_set_state
+
+            mcp_set_state(
+                _printers,
+                _templates,
+                _queue,
+                _jinja_engine,
+                _image_engine,
+                api_key=_config.api_key,
+                templates_path=templates_path,
+            )
+            mcp = create_mcp_server()
+            app.mount("/mcp", mcp.streamable_http_app())
+            logger.info("MCP server mounted at /mcp")
+        except ImportError:
+            logger.warning("MCP enabled but 'mcp' package not installed. Install with: uv sync --group mcp")
 
     logger.info("Labelable startup complete")
 
