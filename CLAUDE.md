@@ -450,11 +450,13 @@ Note: Replace `localhost:7979` with the add-on's internal hostname if accessing 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/printers` | List printers with status |
+| GET | `/api/v1/printers/{name}` | Get single printer details |
 | GET | `/api/v1/templates` | List available templates |
 | GET | `/api/v1/templates/{name}` | Get template details |
 | POST | `/api/v1/templates` | Create new template (JSON body) |
 | PUT | `/api/v1/templates/{name}` | Update existing template (JSON body) |
-| POST | `/api/v1/print/{template}` | Submit print job |
+| POST | `/api/v1/print/{template_name}` | Submit print job |
+| GET | `/api/v1/jobs/{job_id}` | Get print job status |
 | POST | `/api/v1/bridge/register` | Register bridge daemon |
 | GET | `/api/v1/bridge/{name}/job` | Daemon polls for pending job |
 | POST | `/api/v1/bridge/{name}/result` | Daemon reports job result |
@@ -474,9 +476,11 @@ Note: Replace `localhost:7979` with the add-on's internal hostname if accessing 
 ### EPL2 (Eltron Programming Language)
 - `UQ` - Status query (healthcheck, returns model info)
 - `N` - Clear image buffer
-- `A` - ASCII text
-- `B` - Barcode
-- `P` - Print label
+- `A` - ASCII text: `A x,y,rotation,font,h_mult,v_mult,reverse,"data"`
+- `B` - Barcode: `B x,y,rotation,type,narrow,wide,height,print_human,"data"`
+- `LO` - Line/filled rectangle: `LO x,y,width,height`
+- `GW` - Graphics write: `GW x,y,bytes_per_row,height,<binary>` (0 bit = black, 1 bit = white)
+- `P` - Print label (e.g., `P1` for 1 copy, `P3` for 3)
 
 ### P-Touch PTCBP (Brother Raster Protocol)
 - Print head: 128 pixels wide (16 bytes/line), 180 DPI

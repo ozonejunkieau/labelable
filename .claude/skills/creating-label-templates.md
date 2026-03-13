@@ -1,3 +1,11 @@
+---
+description: Use when creating, editing, debugging, or printing label templates. Covers template YAML structure, image engine elements (text, QR, barcodes), field types, Jinja engine, printer testing (ZPL, EPL2, P-Touch), direct TCP debugging, font configuration, batch labels, and the labelable-render CLI.
+globs:
+  - "templates/**/*.yaml"
+  - "src/labelable/templates/**"
+  - "src/labelable/printers/**"
+---
+
 # Creating Label Templates for Labelable
 
 Label templates are YAML files in the `templates/` directory. They define the layout, fields, and rendering of labels for thermal printers (Zebra ZPL/EPL2) and Brother P-Touch label printers.
@@ -65,6 +73,41 @@ elements:
     auto_scale: true
     circle_aware: true
     wrap: true
+```
+
+### Rectangular label (Zebra EPL2 printer)
+
+```yaml
+name: my-epl2-label
+description: Simple EPL2 label
+engine: image
+dimensions:
+  width_mm: 40
+  height_mm: 15
+dpi: 203
+supported_printers:
+  - epl2-printer
+fields:
+  - name: title
+    type: string
+    required: true
+  - name: code
+    type: string
+    required: false
+elements:
+  - type: text
+    field: title
+    bounds: { x_mm: 1, y_mm: 0.5, width_mm: 25, height_mm: 13 }
+    font_size: 48
+    alignment: left
+    vertical_align: middle
+    auto_scale: true
+  - type: qrcode
+    field: code
+    x_mm: 34
+    y_mm: 7.5
+    size_mm: 11
+    error_correction: M
 ```
 
 ### P-Touch label (Brother continuous tape)
@@ -298,11 +341,13 @@ Width is determined automatically by content length and module width.
 
 ## Fonts
 
-- Default font: `DejaVuSans` (always available)
+- Default font: `DejaVuSans` (falls back to PIL default if not installed)
+- System fonts like `Arial`, `Arial Bold`, `Helvetica`, `Courier New` work on macOS
 - Google Fonts are auto-downloaded when `download_google_fonts: true` in config
 - Specify font by name (e.g., `MartianMono-Medium`, `Delius`, `PTSans-Bold`)
 - For monospace labels (wire markers, codes), use `MartianMono-Medium`
 - For decorative labels (pantry, jars), use a display font like `Delius` or `PlaywriteNZ-Regular`
+- Use `labelable-render` to verify fonts resolve — warnings are printed for missing fonts
 
 ## Previewing Templates
 
@@ -333,6 +378,25 @@ curl http://localhost:7979/api/v1/templates
 # List printers
 curl http://localhost:7979/api/v1/printers
 ```
+
+## Direct Printer Testing (TCP)
+
+For EPL2 printers accessible via TCP, you can send commands directly for testing:
+
+```bash
+# Check printer status (needs CRLF + delay for response)
+(printf 'UQ\r\n'; sleep 2) | nc -w 5 <ip> <port> | cat -v
+
+# Send raw EPL2 commands
+(printf 'N\r\nA10,5,0,4,1,1,N,"Test"\r\nP1\r\n'; sleep 2) | nc -w 5 <ip> <port>
+
+# Send image-rendered EPL2 binary
+uv run labelable-render templates/my-label.yaml --format epl2 -d title="Test" -o /tmp/label.bin
+(cat /tmp/label.bin; sleep 2) | nc -w 5 <ip> <port>
+```
+
+Key UQ response fields: `rY`/`rN` = ready yes/no, `q<dots>` = label width, `Q<dots>,<gap>` = label length.
+"ERROR!! PRESS EXIT" means the printer needs a physical button press or power cycle to clear an error.
 
 ## Design Tips
 

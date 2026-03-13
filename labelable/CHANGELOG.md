@@ -1,18 +1,17 @@
 # Changelog
 
-## 0.4.1-dev2
+## 0.4.1
 
+- Fix EPL2 image converter bit polarity (0 bit = black, 1 bit = white per GW spec)
 - Fix MCP server not responding (was mounted incorrectly as sub-app)
-  - Manage StreamableHTTPSessionManager lifecycle directly in app lifespan
-  - Add route before catch-all SPA handler so `/mcp` is reachable
 - Add MCP config example to `config.example.yaml`
-
-## 0.4.1-dev1
-
 - Add optional TLS/HTTPS support using Let's Encrypt certificates
   - Enable with `ssl: true` in add-on configuration
   - Auto-restart when certificate files change (for seamless renewal)
   - Non-HA usage: set `LABELABLE_SSL_CERTFILE` and `LABELABLE_SSL_KEYFILE` env vars
+- Expand label creation skill with EPL2 examples, TCP debugging, and font tips
+- Update API endpoint table and EPL2 command reference in docs
+- Upgrade dependencies (fastapi, fonttools, pyjwt, ruff, yarl)
 
 ## 0.4.0
 

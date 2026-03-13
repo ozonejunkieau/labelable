@@ -127,12 +127,11 @@ class TestEPL2Converter:
 
         output = image_to_epl2(image)
 
-        # Binary output should have 0x80 for first byte
-        # Find the data portion after "GW0,0,1,1,"
+        # EPL2: 0 bit = black (print), 1 bit = white (no print)
+        # First pixel black (0), rest white (1) = 0b01111111 = 0x7F
         assert b"GW0,0,1,1," in output
-        # The byte after the comma should be 0x80
         idx = output.find(b"GW0,0,1,1,") + len(b"GW0,0,1,1,")
-        assert output[idx] == 0x80
+        assert output[idx] == 0x7F
 
     def test_all_black_image(self):
         """Test all black image."""
@@ -140,9 +139,9 @@ class TestEPL2Converter:
 
         output = image_to_epl2(image)
 
-        # Find data byte
+        # EPL2: 0 bit = black, all black = 0x00
         idx = output.find(b"GW0,0,1,1,") + len(b"GW0,0,1,1,")
-        assert output[idx] == 0xFF
+        assert output[idx] == 0x00
 
     def test_all_white_image(self):
         """Test all white image."""
@@ -150,9 +149,9 @@ class TestEPL2Converter:
 
         output = image_to_epl2(image)
 
-        # Find data byte
+        # EPL2: 1 bit = white, all white = 0xFF
         idx = output.find(b"GW0,0,1,1,") + len(b"GW0,0,1,1,")
-        assert output[idx] == 0x00
+        assert output[idx] == 0xFF
 
     def test_rgb_image_converts(self):
         """Test that RGB images are converted to 1-bit."""

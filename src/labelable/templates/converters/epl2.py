@@ -42,8 +42,8 @@ def image_to_epl2(image: Image.Image) -> bytes:
                 if pixel_x < width:
                     pixel_idx = y * width + pixel_x
                     # PIL: 0 = black, non-zero = white
-                    # EPL2: 1 bit = black (print), 0 bit = white (no print)
-                    if pixels[pixel_idx] == 0:  # Black pixel in PIL
+                    # EPL2: 0 bit = black (print), 1 bit = white (no print)
+                    if pixels[pixel_idx] != 0:  # White pixel in PIL
                         byte_val |= 1 << (7 - bit)
             binary_data.append(byte_val)
 
