@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Fix DataMatrix rendering in HA add-on (install `libdmtx-libs` instead of empty `libdmtx` meta-package)
+
 ## 0.4.1
 
 - Fix EPL2 image converter bit polarity (0 bit = black, 1 bit = white per GW spec)

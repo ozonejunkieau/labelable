@@ -6,7 +6,7 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     py3-wheel \
-    libdmtx \
+    libdmtx-libs \
     ttf-dejavu
 
 # Set working directory
