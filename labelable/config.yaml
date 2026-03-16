@@ -1,5 +1,5 @@
 name: Labelable
-version: "0.4.3"
+version: "0.4.4"
 slug: labelable
 description: Label printing API and UI for thermal printers (Zebra ZPL/EPL2)
 url: https://github.com/ozonejunkieau/labelable
@@ -21,8 +21,10 @@ panel_title: Labelable
 # Users must enable this in add-on configuration
 ports:
   7979/tcp: null
+  7980/tcp: null
 ports_description:
-  7979/tcp: "API access (optional, for external clients)"
+  7979/tcp: "HTTP API access (optional, for external clients)"
+  7980/tcp: "HTTPS API access (when SSL enabled)"
 
 # Map config directory for persistent storage
 map:

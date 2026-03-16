@@ -62,11 +62,14 @@ if [ -z "$(ls -A "$TEMPLATES_DIR" 2>/dev/null)" ]; then
 fi
 
 # TLS/SSL configuration (opt-in)
+# When enabled, runs dual mode: HTTP on 7979 (ingress) + HTTPS on 7980 (external)
 if bashio::config.true 'ssl'; then
     if [ -f "/ssl/fullchain.pem" ] && [ -f "/ssl/privkey.pem" ]; then
         export LABELABLE_SSL_CERTFILE="/ssl/fullchain.pem"
         export LABELABLE_SSL_KEYFILE="/ssl/privkey.pem"
-        bashio::log.info "TLS enabled using certificates from /ssl/"
+        export LABELABLE_DUAL_HTTP="1"
+        export LABELABLE_SSL_PORT="7980"
+        bashio::log.info "TLS enabled: HTTP on 7979 (ingress), HTTPS on 7980 (external)"
     else
         bashio::log.warning "SSL enabled but certificate files not found in /ssl/"
     fi

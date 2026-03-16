@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     show_user_debug: bool = True  # Show HA user ID on home page for debugging user_mapping
     ssl_certfile: Path | None = None
     ssl_keyfile: Path | None = None
+    ssl_port: int = 7980  # Separate port for HTTPS when running dual HTTP+HTTPS
 
 
 def load_config(config_path: Path) -> AppConfig:

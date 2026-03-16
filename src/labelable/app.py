@@ -7,6 +7,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from starlette.responses import Response
 from starlette.routing import Route
 
 from labelable.api import routes as api_routes
@@ -23,10 +24,15 @@ class IngressPathMiddleware:
 
     Sets the ASGI root_path from X-Ingress-Path header so FastAPI
     and FastUI properly handle the ingress proxy prefix.
+
+    When require_ingress=True (dual HTTP+HTTPS mode), HTTP requests
+    without X-Ingress-Path are rejected with 403. This prevents direct
+    access to the HTTP port — only HA Ingress should use it.
     """
 
-    def __init__(self, app):
+    def __init__(self, app, require_ingress: bool = False):
         self.app = app
+        self.require_ingress = require_ingress
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
@@ -35,6 +41,15 @@ class IngressPathMiddleware:
             if ingress_path:
                 scope = scope.copy()
                 scope["root_path"] = ingress_path.rstrip("/")
+            elif self.require_ingress:
+                # Block non-ingress requests on the HTTP port
+                response = Response(
+                    content="Forbidden: use HTTPS port for direct access",
+                    status_code=403,
+                    media_type="text/plain",
+                )
+                await response(scope, receive, send)
+                return
         await self.app(scope, receive, send)
 
 
@@ -224,7 +239,11 @@ def create_app() -> FastAPI:
     )
 
     # Add middleware for HA Ingress path handling
-    app.add_middleware(IngressPathMiddleware)
+    # In dual HTTP+HTTPS mode, require X-Ingress-Path on HTTP to block direct access
+    import os
+
+    require_ingress = os.environ.get("LABELABLE_DUAL_HTTP") == "1"
+    app.add_middleware(IngressPathMiddleware, require_ingress=require_ingress)
 
     # Include routers with API key auth for API routes
     app.include_router(

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.4
+
+- Add dual HTTP+HTTPS mode for HA add-on
+  - HTTP on port 7979 for HA Ingress (sidebar), restricted to requests with `X-Ingress-Path` header
+  - HTTPS on port 7980 for external clients (enable port in add-on config)
+  - Activated automatically when `ssl: true` is set
+
 ## 0.4.3
 
 - Fix healthcheck/print interleaving on shared TCP socket

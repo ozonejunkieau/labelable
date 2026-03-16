@@ -208,7 +208,9 @@ Enable HTTPS for the API and web UI using TLS certificates (e.g., from the Let's
 **Home Assistant add-on:**
 1. Install and configure the Let's Encrypt add-on (writes certs to `/ssl/`)
 2. Set `ssl: true` in the Labelable add-on configuration
-3. The add-on will serve HTTPS on port 7979
+3. The add-on runs dual mode:
+   - **HTTP on port 7979** — for HA Ingress (sidebar access, internal)
+   - **HTTPS on port 7980** — for external clients (enable port in add-on config)
 
 **Certificate renewal:**
 When cert files change on disk (e.g., after Let's Encrypt renewal), the add-on automatically restarts within 60 seconds to pick up the new certificates. The HA supervisor handles the restart.
@@ -216,8 +218,16 @@ When cert files change on disk (e.g., after Let's Encrypt renewal), the add-on a
 **Non-HA usage:**
 Set environment variables directly:
 ```bash
+# HTTPS only (single port)
 export LABELABLE_SSL_CERTFILE=/path/to/fullchain.pem
 export LABELABLE_SSL_KEYFILE=/path/to/privkey.pem
+uv run labelable
+
+# Dual mode: HTTP + HTTPS on separate ports
+export LABELABLE_SSL_CERTFILE=/path/to/fullchain.pem
+export LABELABLE_SSL_KEYFILE=/path/to/privkey.pem
+export LABELABLE_DUAL_HTTP=1
+export LABELABLE_SSL_PORT=7980
 uv run labelable
 ```
 
