@@ -120,14 +120,17 @@ class PrintQueue:
                     on_status_change(job)
 
                 try:
-                    # Check printer is online
-                    if not await printer.is_online():
-                        # Re-queue the job and wait before retrying
-                        job.status = JobStatus.PENDING
-                        await queue.put(job)
-                        logger.debug(f"Printer {printer.name} offline, job {job.id} re-queued")
-                        await asyncio.sleep(5.0)  # Wait before checking again
-                        continue
+                    # Check printer is online — use cache if fresh to avoid
+                    # sending a healthcheck command on the same socket right
+                    # before print data (risks interleaving)
+                    cached = printer.get_cached_online_status()
+                    if cached is None or not cached:
+                        if not await printer.is_online():
+                            job.status = JobStatus.PENDING
+                            await queue.put(job)
+                            logger.debug(f"Printer {printer.name} offline, job {job.id} re-queued")
+                            await asyncio.sleep(5.0)
+                            continue
 
                     # Ensure connection
                     if not printer.is_connected:
@@ -135,8 +138,13 @@ class PrintQueue:
 
                     # Print the job with quantity handling
                     # Printer subclass decides whether to loop or use native command
-                    if job.rendered_content:
-                        await printer.print_with_quantity(job.rendered_content, job.quantity)
+                    # Set _printing flag to suppress healthchecks during print
+                    printer._printing = True
+                    try:
+                        if job.rendered_content:
+                            await printer.print_with_quantity(job.rendered_content, job.quantity)
+                    finally:
+                        printer._printing = False
 
                     job.status = JobStatus.COMPLETED
                     logger.info(f"Job {job.id} completed")

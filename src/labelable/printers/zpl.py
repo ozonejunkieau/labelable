@@ -118,7 +118,11 @@ class ZPLPrinter(BasePrinter):
 
         For TCP/serial: sends a healthcheck command and checks for response.
         For HA connections: queries the HA API for the printer's ready state.
+        Skipped during active print jobs to avoid interleaving on shared socket.
         """
+        if self._printing:
+            return self._cached_online or self._connected
+
         if not self._connected:
             try:
                 await self.connect()
@@ -180,11 +184,22 @@ class ZPLPrinter(BasePrinter):
         return None
 
     async def print_raw(self, data: bytes) -> None:
-        """Send raw ZPL data to the printer."""
-        if not self._connected:
-            raise ConnectionError("Printer not connected")
+        """Send raw ZPL data to the printer.
 
-        await self._send(data)
+        Automatically reconnects once if the connection has gone stale
+        (e.g. TCP server closed after idle timeout).
+        """
+        if not self._connected:
+            await self.connect()
+
+        try:
+            await self._send(data)
+        except (ConnectionError, OSError) as e:
+            logger.warning(f"Printer {self.name}: send failed, reconnecting - {e}")
+            self._connected = False
+            await self.disconnect()
+            await self.connect()
+            await self._send(data)
 
     async def print_with_quantity(self, data: bytes, quantity: int) -> None:
         """Send ZPL data with quantity handling.

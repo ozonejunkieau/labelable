@@ -22,6 +22,7 @@ class BasePrinter(ABC):
         self.config = config
         self.name = config.name
         self._connected = False
+        self._printing = False  # Set during print jobs to suppress healthchecks
         self._cached_online: bool | None = None
         self._cache_time: float = 0.0
         self._last_checked: datetime | None = None  # Absolute time of last status check

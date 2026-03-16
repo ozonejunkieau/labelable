@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.3
+
+- Fix healthcheck/print interleaving on shared TCP socket
+  - Suppress healthcheck commands while a print job is in progress
+  - Skip redundant pre-print healthcheck when cached status is fresh
+- Add auto-reconnect on stale TCP connections (handles idle timeout disconnects)
+- Apply same fixes to both EPL2 and ZPL printer implementations
+
 ## 0.4.2
 
 - Fix DataMatrix rendering in HA add-on (install `libdmtx-libs` instead of empty `libdmtx` meta-package)
