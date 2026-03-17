@@ -1,3 +1,3 @@
 """Labelable - A general purpose label printing API and UI."""
 
-__version__ = "0.4.5"
+__version__ = "0.4.6"

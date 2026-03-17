@@ -41,8 +41,8 @@ class IngressPathMiddleware:
             if ingress_path:
                 scope = scope.copy()
                 scope["root_path"] = ingress_path.rstrip("/")
-            elif self.require_ingress:
-                # Block non-ingress requests on the HTTP port
+            elif self.require_ingress and scope.get("scheme") != "https":
+                # Block non-ingress requests on the HTTP port only
                 response = Response(
                     content="Forbidden: use HTTPS port for direct access",
                     status_code=403,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.6
+
+- Fix ingress middleware blocking HTTPS requests (only enforce on HTTP scheme)
+
 ## 0.4.5
 
 - Add add-on configuration translations (field labels and descriptions)
