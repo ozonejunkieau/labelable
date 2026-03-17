@@ -32,7 +32,7 @@ COPY templates/_example.yaml ./templates/_example.yaml
 COPY labelable/run.sh /
 RUN chmod a+x /run.sh
 
-# Expose port (for direct access if enabled)
-EXPOSE 7979
+# Expose ports (HTTP for ingress, HTTPS for external access)
+EXPOSE 7979 7980
 
 ENTRYPOINT [ "/run.sh" ]

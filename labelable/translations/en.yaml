@@ -1,0 +1,17 @@
+configuration:
+  config_file:
+    name: Configuration file
+    description: >-
+      Path to the Labelable YAML configuration file. Contains printer
+      definitions, user mappings, and other settings.
+  templates_dir:
+    name: Templates directory
+    description: >-
+      Path to the directory containing label template YAML files.
+      Templates added here will appear in the web UI.
+  ssl:
+    name: Enable SSL
+    description: >-
+      Serve HTTPS on port 7980 for external access using Let's Encrypt
+      certificates from /ssl/. The HA sidebar (Ingress) always uses
+      HTTP internally on port 7979 and is unaffected by this setting.

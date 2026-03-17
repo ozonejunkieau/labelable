@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5
+
+- Add add-on configuration translations (field labels and descriptions)
+- Expose HTTPS port 7980 in Dockerfile and add-on config
+
 ## 0.4.4
 
 - Add dual HTTP+HTTPS mode for HA add-on
