@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.7
+
+- Add Cloudflare Queue consumer for receive-only queue-driven label printing
+- `event_type` in queue messages maps to a template name; full message body available as template context
+- Configurable via `cloudflare_queue:` in config.yaml or `LABELABLE_CF_API_TOKEN` env var
+
 ## 0.4.6
 
 - Fix ingress middleware blocking HTTPS requests (only enforce on HTTP scheme)
