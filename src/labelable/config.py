@@ -22,6 +22,21 @@ class TemplateLoadResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class CloudflareQueueConfig(BaseModel):
+    """Configuration for the Cloudflare Queue consumer."""
+
+    enabled: bool = False
+    account_id: str = ""
+    queue_id: str = ""
+    # API token with Queue Read permission. Leave blank to read from
+    # the LABELABLE_CF_API_TOKEN environment variable instead.
+    api_token: str = ""
+    poll_interval_seconds: int = 5
+    batch_size: int = 10
+    # How long (ms) a pulled message is hidden before re-delivery if not acked
+    visibility_timeout_ms: int = 30_000
+
+
 class AppConfig(BaseModel):
     """Application configuration loaded from config.yaml."""
 
@@ -38,6 +53,8 @@ class AppConfig(BaseModel):
     download_google_fonts: bool = False
     # Enable MCP server (mounted at /mcp)
     mcp_enabled: bool = False
+    # Cloudflare Queue consumer (receive-only)
+    cloudflare_queue: CloudflareQueueConfig = Field(default_factory=CloudflareQueueConfig)
 
 
 class Settings(BaseSettings):

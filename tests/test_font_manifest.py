@@ -304,3 +304,37 @@ class TestReadFontMetadata:
         """Returns None for nonexistent file."""
         result = read_font_metadata(Path("/nonexistent/font.ttf"))
         assert result is None
+
+
+class TestGenerateFontAliasesUnknownWeight:
+    """Tests for generate_font_aliases with unusual weight values."""
+
+    def test_unknown_weight_falls_back_to_closest(self):
+        """Weight not in WEIGHT_NAMES falls back to closest known weight."""
+        metadata = {
+            "family": "TestFont",
+            "subfamily": "Regular",
+            "full_name": "TestFont Regular",
+            "postscript_name": "TestFont-Regular",
+            "weight": 450,  # Not in WEIGHT_NAMES; closest is 400
+            "is_italic": False,
+        }
+        aliases = generate_font_aliases(metadata)
+        # Should produce aliases without raising, using closest weight names
+        assert isinstance(aliases, list)
+        assert len(aliases) > 0
+        # Numeric weight alias should appear
+        assert "TestFont-450" in aliases
+
+
+class TestLoadManifestCorruptJson:
+    """Tests for load_manifest with a corrupt JSON file."""
+
+    def test_corrupt_json_returns_empty_dict(self):
+        """load_manifest returns {} when the manifest file is corrupt."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest_path = Path(tmpdir) / MANIFEST_FILE
+            manifest_path.write_text("{ this is not valid json !!!")
+
+            result = load_manifest(Path(tmpdir))
+            assert result == {}

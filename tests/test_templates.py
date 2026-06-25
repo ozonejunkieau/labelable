@@ -116,3 +116,113 @@ class TestJinjaTemplateEngine:
         # Case 4: gluten_free=False, caution="" (none) -> "!!! GLUTEN !!!"
         result = engine.render(template, {"name": "Test", "gluten_free": False, "caution": ""})
         assert b"!!! GLUTEN !!!" in result
+
+
+class TestMd5Filter:
+    def test_returns_hex_digest(self):
+        from labelable.templates.jinja_engine import _md5_filter
+
+        result = _md5_filter("hello")
+        assert result == "5d41402abc4b2a76b9719d911017c592"
+
+    def test_returns_string(self):
+        from labelable.templates.jinja_engine import _md5_filter
+
+        assert isinstance(_md5_filter("test"), str)
+        assert len(_md5_filter("test")) == 32
+
+
+class TestStringLoader:
+    def test_get_source_raises_not_implemented(self):
+        from labelable.templates.jinja_engine import StringLoader
+
+        loader = StringLoader()
+        with pytest.raises(NotImplementedError):
+            loader.get_source(None, "template")
+
+
+class TestJinjaEngineErrorPaths:
+    @pytest.fixture
+    def engine(self) -> JinjaTemplateEngine:
+        return JinjaTemplateEngine()
+
+    @pytest.fixture
+    def base_template(self):
+        from labelable.models.printer import PrinterType
+
+        return TemplateConfig(
+            name="base",
+            dimensions=LabelDimensions(width_mm=50, height_mm=25),
+            supported_printers=[PrinterType.ZPL],
+            fields=[],
+            template="^XA^XZ",
+        )
+
+    def test_template_none_raises_template_error(self, engine):
+        from labelable.models.printer import PrinterType
+        from labelable.templates.engine import TemplateError
+
+        template = TemplateConfig(
+            name="no-template",
+            dimensions=LabelDimensions(width_mm=50, height_mm=25),
+            supported_printers=[PrinterType.ZPL],
+            fields=[],
+            template=None,
+        )
+        with pytest.raises(TemplateError, match="Jinja engine requires"):
+            engine.render(template, {})
+
+    def test_syntax_error_raises_template_error(self, engine):
+        from labelable.models.printer import PrinterType
+        from labelable.templates.engine import TemplateError
+
+        template = TemplateConfig(
+            name="bad-syntax",
+            dimensions=LabelDimensions(width_mm=50, height_mm=25),
+            supported_printers=[PrinterType.ZPL],
+            fields=[],
+            template="{{ unclosed",
+        )
+        with pytest.raises(TemplateError, match="Template syntax error"):
+            engine.render(template, {})
+
+    def test_undefined_variable_raises_template_error(self, engine):
+        from unittest.mock import MagicMock, patch
+
+        from jinja2 import UndefinedError as JinjaUndefinedError
+
+        from labelable.models.printer import PrinterType
+        from labelable.templates.engine import TemplateError
+
+        template = TemplateConfig(
+            name="undefined-var",
+            dimensions=LabelDimensions(width_mm=50, height_mm=25),
+            supported_printers=[PrinterType.ZPL],
+            fields=[],
+            template="^XA^XZ",
+        )
+
+        fake_tmpl = MagicMock()
+        fake_tmpl.render = MagicMock(side_effect=JinjaUndefinedError("'undefined_var' is undefined"))
+
+        with patch.object(engine._env, "from_string", return_value=fake_tmpl):
+            with pytest.raises(TemplateError, match="Undefined variable"):
+                engine.render(template, {})
+
+    def test_generic_exception_wrapped_as_template_error(self, engine):
+        from unittest.mock import patch
+
+        from labelable.models.printer import PrinterType
+        from labelable.templates.engine import TemplateError
+
+        template = TemplateConfig(
+            name="generic-error",
+            dimensions=LabelDimensions(width_mm=50, height_mm=25),
+            supported_printers=[PrinterType.ZPL],
+            fields=[],
+            template="^XA^XZ",
+        )
+
+        with patch.object(engine._env, "from_string", side_effect=RuntimeError("boom")):
+            with pytest.raises(TemplateError, match="Failed to render template"):
+                engine.render(template, {})

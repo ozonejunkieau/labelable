@@ -161,6 +161,24 @@ async def lifespan(app: FastAPI):
     )
 
     async with AsyncExitStack() as stack:
+        # Start Cloudflare Queue consumer if enabled
+        cf_consumer_task = None
+        if _config.cloudflare_queue.enabled:
+            from labelable.integrations.cloudflare_queue import run_cloudflare_queue_consumer
+
+            cf_consumer_task = asyncio.create_task(
+                run_cloudflare_queue_consumer(
+                    _config,
+                    _templates,
+                    _printers,
+                    _queue,
+                    _jinja_engine,
+                    _image_engine,
+                ),
+                name="cloudflare-queue-consumer",
+            )
+            logger.info("Cloudflare Queue consumer task started")
+
         # Mount MCP server if enabled
         if _config.mcp_enabled:
             try:
@@ -211,7 +229,9 @@ async def lifespan(app: FastAPI):
         # Shutdown
         logger.info("Labelable shutting down")
 
-        # Cancel cert watcher
+        # Cancel background tasks
+        if cf_consumer_task:
+            cf_consumer_task.cancel()
         if cert_watcher_task:
             cert_watcher_task.cancel()
 

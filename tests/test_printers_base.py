@@ -2,6 +2,7 @@
 
 import time
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -186,3 +187,114 @@ class TestPrinterOffline:
         """Test cached status is False after check."""
         await offline_printer.is_online()
         assert offline_printer.get_cached_online_status() is False
+
+
+class TestBasePrinterContextManager:
+    @pytest.mark.asyncio
+    async def test_context_manager_connects_and_disconnects(self, printer):
+        assert not printer.is_connected
+        async with printer:
+            assert printer.is_connected
+        assert not printer.is_connected
+
+
+class TestHAStatus:
+    @pytest.mark.asyncio
+    async def test_is_online_ha_no_session_returns_false(self, printer):
+        printer._ha_session = None
+        printer._ha_device_id = None
+        result = await printer._is_online_ha()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_is_online_ha_ready_sensor_on(self, printer):
+        resp = MagicMock()
+        resp.__aenter__ = AsyncMock(return_value=resp)
+        resp.__aexit__ = AsyncMock(return_value=False)
+        resp.status = 200
+        resp.json = AsyncMock(return_value={"state": "on"})
+
+        session = MagicMock()
+        session.get = MagicMock(return_value=resp)
+        printer._ha_session = session
+        printer._ha_device_id = "warehouse_printer"
+        printer._ha_url = "http://supervisor/core"
+
+        result = await printer._is_online_ha()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_is_online_ha_ready_sensor_off(self, printer):
+        resp = MagicMock()
+        resp.__aenter__ = AsyncMock(return_value=resp)
+        resp.__aexit__ = AsyncMock(return_value=False)
+        resp.status = 200
+        resp.json = AsyncMock(return_value={"state": "off"})
+
+        session = MagicMock()
+        session.get = MagicMock(return_value=resp)
+        printer._ha_session = session
+        printer._ha_device_id = "warehouse_printer"
+        printer._ha_url = "http://supervisor/core"
+
+        result = await printer._is_online_ha()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_is_online_ha_sensor_not_found_falls_back_to_language_sensor(self, printer):
+        # binary_sensor returns 404, language sensor returns 200
+        resp_404 = MagicMock()
+        resp_404.__aenter__ = AsyncMock(return_value=resp_404)
+        resp_404.__aexit__ = AsyncMock(return_value=False)
+        resp_404.status = 404
+
+        resp_200 = MagicMock()
+        resp_200.__aenter__ = AsyncMock(return_value=resp_200)
+        resp_200.__aexit__ = AsyncMock(return_value=False)
+        resp_200.status = 200
+        resp_200.json = AsyncMock(return_value={"state": "ZPL"})
+
+        call_count = 0
+
+        def get_side_effect(url):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return resp_404
+            return resp_200
+
+        session = MagicMock()
+        session.get = MagicMock(side_effect=get_side_effect)
+        printer._ha_session = session
+        printer._ha_device_id = "warehouse_printer"
+        printer._ha_url = "http://supervisor/core"
+
+        result = await printer._is_online_ha()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_is_online_ha_both_sensors_missing(self, printer):
+        resp_404 = MagicMock()
+        resp_404.__aenter__ = AsyncMock(return_value=resp_404)
+        resp_404.__aexit__ = AsyncMock(return_value=False)
+        resp_404.status = 404
+
+        session = MagicMock()
+        session.get = MagicMock(return_value=resp_404)
+        printer._ha_session = session
+        printer._ha_device_id = "warehouse_printer"
+        printer._ha_url = "http://supervisor/core"
+
+        result = await printer._is_online_ha()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_is_online_ha_exception_returns_false(self, printer):
+        session = MagicMock()
+        session.get = MagicMock(side_effect=Exception("connection error"))
+        printer._ha_session = session
+        printer._ha_device_id = "warehouse_printer"
+        printer._ha_url = "http://supervisor/core"
+
+        result = await printer._is_online_ha()
+        assert result is False
