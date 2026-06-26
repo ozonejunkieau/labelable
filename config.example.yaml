@@ -28,6 +28,23 @@ default_user: ""
 # Requires: uv sync --group mcp
 # mcp_enabled: true
 
+# Cloudflare Queue consumer (optional)
+# Receives print jobs pushed to a Cloudflare Queue by external systems
+# (e.g. the Labelable Obsidian plugin). The consumer polls the queue in the
+# background and dispatches jobs to the appropriate printer and template.
+#
+# The API token needs Cloudflare Queues Read permission.
+# Alternatively, leave api_token blank and set LABELABLE_CF_API_TOKEN env var.
+#
+# cloudflare_queue:
+#   enabled: true
+#   account_id: "your-cloudflare-account-id"
+#   queue_id: "your-queue-id"
+#   api_token: ""               # or set LABELABLE_CF_API_TOKEN env var
+#   poll_interval_seconds: 5    # how often to poll for new messages
+#   batch_size: 10              # max messages to pull per request
+#   visibility_timeout_ms: 30000  # ms before unacked message is re-delivered
+
 # Printer definitions
 printers:
   # ZPL printer over TCP

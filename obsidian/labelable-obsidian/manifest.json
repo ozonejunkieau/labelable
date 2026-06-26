@@ -1,0 +1,9 @@
+{
+  "id": "labelable",
+  "name": "Labelable",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.0",
+  "description": "Print labels via Cloudflare Queue directly from note context menus.",
+  "author": "ozonejunkieau",
+  "isDesktopOnly": true
+}

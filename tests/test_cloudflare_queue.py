@@ -68,12 +68,13 @@ class TestNormalizeEventType:
     def test_spaces_become_underscores(self):
         assert _normalize_event_type("Print Label") == "print_label"
 
-    def test_hyphens_become_underscores(self):
-        assert _normalize_event_type("print-label") == "print_label"
+    def test_hyphens_preserved(self):
+        # Hyphens are kept so slug-style names match template names directly
+        assert _normalize_event_type("print-label") == "print-label"
 
-    def test_mixed_spaces_and_hyphens(self):
-        # Consecutive spaces/hyphens collapse into a single underscore
-        assert _normalize_event_type("Print - Label") == "print_label"
+    def test_spaces_around_hyphen(self):
+        # Spaces become underscores; hyphens stay — callers should use clean slugs
+        assert _normalize_event_type("Print - Label") == "print_-_label"
 
     def test_already_normalised(self):
         assert _normalize_event_type("print_label") == "print_label"

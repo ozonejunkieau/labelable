@@ -26,10 +26,12 @@ _CF_API_BASE = "https://api.cloudflare.com/client/v4"
 def _normalize_event_type(event_type: str) -> str:
     """Map an event_type string to a template name.
 
-    Lowercases and replaces spaces/hyphens with underscores so that
-    e.g. "Print Label" and "print-label" both resolve to "print_label".
+    Lowercases, strips leading/trailing whitespace, and collapses internal
+    whitespace runs to underscores.  Hyphens are preserved so that slug-style
+    names like "project-label" match the template name directly without
+    requiring callers to use underscores.
     """
-    return re.sub(r"[\s\-]+", "_", event_type.strip().lower())
+    return re.sub(r"\s+", "_", event_type.strip().lower())
 
 
 async def _process_message(
@@ -102,16 +104,23 @@ async def _process_message(
         logger.debug("CF queue: printer %r offline, will retry job", printer_name)
         return False
 
-    # Render — use entire message body as context
+    # Build render context: flatten body["properties"] into the top level so
+    # image engine elements can reference fields by simple name (e.g. field: name)
+    # without needing dot-notation. Top-level body keys (event_type, timestamp,
+    # file, properties) are still accessible at their original paths.
+    properties = body.get("properties")
+    context: dict[str, object] = {**(properties if isinstance(properties, dict) else {}), **body}
+
+    # Render
     try:
         if template.engine == EngineType.IMAGE:
             if image_engine is None:
                 logger.error("CF queue: image engine not initialized, will retry")
                 return False
             output_format = printer.config.type.value  # "zpl", "epl2", or "ptouch"
-            rendered = image_engine.render(template, body, output_format=output_format)
+            rendered = image_engine.render(template, context, output_format=output_format)
         else:
-            rendered = jinja_engine.render(template, body)
+            rendered = jinja_engine.render(template, context)
     except Exception:
         # Ack (discard) on render failure to avoid a poison-pill loop
         logger.exception(

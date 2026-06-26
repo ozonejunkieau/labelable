@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.8
+
+- Fix Cloudflare Queue consumer: normaliser no longer converts hyphens to underscores, so hyphenated template names (e.g. `project-label`) resolve correctly
+- Fix Cloudflare Queue consumer: flatten `properties` from queue message into render context so image engine templates access fields by simple name
+- Add Obsidian plugin (`obsidian/labelable-obsidian`) for publishing label jobs from note context menus via Cloudflare Queue
+- Add `cloudflare_queue` section to `config.example.yaml`
+- Gitignore `obsidian/labelable-obsidian/data.json` (contains API credentials)
+
 ## 0.4.7
 
 - Add Cloudflare Queue consumer for receive-only queue-driven label printing

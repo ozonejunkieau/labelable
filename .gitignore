@@ -20,6 +20,11 @@ wheels/
 .installed.cfg
 *.egg
 
+# Node
+obsidian/labelable-obsidian/node_modules
+# Obsidian plugin settings (contains API tokens — never commit)
+obsidian/labelable-obsidian/data.json
+
 # Virtual environments
 .venv/
 venv/
@@ -51,7 +56,7 @@ htmlcov/
 # Local configuration (user-specific, use config.example.yaml as template)
 /config.yaml
 
-# User templates (keep example templates)
+# User templates (keep example templates, ignore local ones — deployed manually)
 templates/*.yaml
 !templates/_example.yaml
 !templates/example-image.yaml
@@ -82,3 +87,4 @@ Thumbs.db
 # Other Junk
 *.svg
 *.pdf
+
