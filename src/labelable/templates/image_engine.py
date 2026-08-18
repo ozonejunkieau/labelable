@@ -19,8 +19,10 @@ from labelable.models.template import (
 from labelable.printers.ptouch_protocol import build_print_job
 from labelable.templates.converters import (
     batch_image_to_ptouch_raster,
+    batch_image_to_raster_rows,
     image_to_epl2,
     image_to_ptouch_raster,
+    image_to_raster_rows,
     image_to_zpl,
 )
 from labelable.templates.elements import (
@@ -98,7 +100,27 @@ class ImageTemplateEngine(BaseTemplateEngine):
                 image = self._render_single_label_image(template, validated_context, mode="1")
 
             # Convert to output format
-            if output_format.lower() == "ptouch":
+            fmt = output_format.lower()
+            if fmt == "ptouch_raw":
+                # Uncompressed, unframed 16-byte raster rows. Used by
+                # transports that build the printer command stream
+                # themselves (e.g. the ptouch_bridge network device).
+                tape_width = template.ptouch_tape_width_mm or 24
+                if not template.ptouch_auto_cut or template.ptouch_chain_print:
+                    logger.warning(
+                        "Template '%s': ptouch_auto_cut/ptouch_chain_print are ignored on the "
+                        "ptouch_bridge transport - the device compiles in auto-cut on, "
+                        "chain-print off, 14-dot margin",
+                        template.name,
+                    )
+                if is_batch:
+                    rows = batch_image_to_raster_rows(image, tape_width_mm=tape_width)
+                else:
+                    padding_px = int(template.ptouch_margin_mm * template.dpi / 25.4)
+                    cropped = self._crop_to_content(image, padding_px)
+                    rows = image_to_raster_rows(cropped, tape_width_mm=tape_width)
+                return b"".join(rows)
+            elif fmt == "ptouch":
                 tape_width = template.ptouch_tape_width_mm or 24
                 if is_batch:
                     # Batch: horizontal strip (width=feed, height=tape).
@@ -125,7 +147,7 @@ class ImageTemplateEngine(BaseTemplateEngine):
                     chain_print=template.ptouch_chain_print,
                     compression=True,
                 )
-            elif output_format.lower() == "epl2":
+            elif fmt == "epl2":
                 return image_to_epl2(image)
             else:
                 # Convert mm offsets to dots

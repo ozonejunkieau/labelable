@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+- Add `ptouch_bridge` connection type: Brother P-Touch printers hosted by an ESP32-P4 network bridge (`ptouch-bridge` firmware) over plain HTTP
+- Add `ptouch_raw` template output format emitting bare uncompressed 16-byte raster rows, for transports that build the printer command stream themselves
+- Add `BasePrinter.output_format` so each transport chooses its own render format instead of the API deriving it from the printer type
+- Fix 6 mm tape margin table (was 52/32/44, now 48/32/48 per the P-Touch 128-pin head spec) — 6 mm labels were printed off-centre
+- Bearer token for the network bridge can be supplied via the `LABELABLE_PTOUCH_BRIDGE_TOKEN` environment variable
+- Fix single-label P-Touch rasterisation: the feed extent was written to the print head axis and the tape extent to the feed axis, so labels printed transposed and anything longer than the tape was narrow was silently clipped into the non-printable margin
+- Fix single-label P-Touch text printing mirrored: the image transform combined a 90 degree rotation with a horizontal mirror, which is a reflection rather than a rotation
+- Single-label content is now centred in the tape's printable window instead of sitting flush against the low-pin edge
+- Update all locked dependencies to their latest versions
+- Migrate the MCP server to mcp 2.0 (`FastMCP` is replaced by `MCPServer`); the `mcp` requirement is now `>=2.0.0`
+
 ## 0.4.8
 
 - Fix Cloudflare Queue consumer: normaliser no longer converts hyphens to underscores, so hyphenated template names (e.g. `project-label`) resolve correctly

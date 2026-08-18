@@ -22,6 +22,7 @@ class ConnectionType(StrEnum):
     USB = "usb"
     HA = "ha"
     BRIDGE = "bridge"
+    PTOUCH_BRIDGE = "ptouch_bridge"
 
 
 class TCPConnection(BaseModel):
@@ -75,8 +76,32 @@ class BridgeConnection(BaseModel):
     tape_width_mm: int | None = None
 
 
+class PTouchBridgeConnection(BaseModel):
+    """ESP32-P4 P-Touch network bridge (ptouch-bridge firmware).
+
+    The device hosts a Brother PT-P710BT over USB and exposes an HTTP API:
+      GET  /status  (unauthenticated)
+      POST /print   (bearer token)
+
+    It does not speak PTCBP - it accepts pre-rasterised, uncompressed
+    16-byte raster rows and builds the printer command stream itself.
+    """
+
+    type: Literal["ptouch_bridge"] = "ptouch_bridge"
+    host: str
+    port: int = 80
+    # Optional in config; falls back to LABELABLE_PTOUCH_BRIDGE_TOKEN
+    token: str | None = None
+    # Fallback media type when the device has never polled the printer.
+    # Live status always wins. 3 = non-laminated.
+    media_type: int = 3
+    # Skip the device's tape width validation. Genuinely unsafe - content
+    # outside the printable pin window is silently discarded.
+    force: bool = False
+
+
 ConnectionConfig = Annotated[
-    TCPConnection | SerialConnection | USBConnection | HAConnection | BridgeConnection,
+    TCPConnection | SerialConnection | USBConnection | HAConnection | BridgeConnection | PTouchBridgeConnection,
     Field(discriminator="type"),
 ]
 

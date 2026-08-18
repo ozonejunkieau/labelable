@@ -117,7 +117,7 @@ async def _process_message(
             if image_engine is None:
                 logger.error("CF queue: image engine not initialized, will retry")
                 return False
-            output_format = printer.config.type.value  # "zpl", "epl2", or "ptouch"
+            output_format = printer.output_format  # "zpl", "epl2", "ptouch", "ptouch_raw"
             rendered = image_engine.render(template, context, output_format=output_format)
         else:
             rendered = jinja_engine.render(template, context)

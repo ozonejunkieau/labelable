@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from labelable.api.template_crud import TemplateCRUDError, create_template_on_disk, update_template_on_disk
 from labelable.models.job import PrintJob
@@ -36,9 +36,13 @@ def set_app_state(
     _app_state["templates_path"] = templates_path
 
 
-def create_mcp_server() -> FastMCP:
-    """Create and configure the MCP server with all tools."""
-    mcp = FastMCP("Labelable", stateless_http=True)
+def create_mcp_server() -> MCPServer:
+    """Create and configure the MCP server with all tools.
+
+    Statelessness is configured on the session manager in app.py rather than
+    here - MCPServer takes no transport settings of its own.
+    """
+    mcp = MCPServer("Labelable")
 
     @mcp.tool()
     async def list_printers() -> str:
@@ -156,7 +160,7 @@ def create_mcp_server() -> FastMCP:
             if template.engine == EngineType.IMAGE:
                 if not image_engine:
                     return json.dumps({"error": "Image engine not initialized"})
-                output_format = target_printer.config.type.value
+                output_format = target_printer.output_format
                 rendered = image_engine.render(template, render_context, output_format=output_format)
             else:
                 rendered = jinja_engine.render(template, render_context)

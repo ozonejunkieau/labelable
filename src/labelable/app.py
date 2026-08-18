@@ -182,8 +182,10 @@ async def lifespan(app: FastAPI):
         # Mount MCP server if enabled
         if _config.mcp_enabled:
             try:
-                from mcp.server.fastmcp.server import StreamableHTTPASGIApp
-                from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+                from mcp.server.streamable_http_manager import (
+                    StreamableHTTPASGIApp,
+                    StreamableHTTPSessionManager,
+                )
 
                 from labelable.api.mcp_server import create_mcp_server
                 from labelable.api.mcp_server import set_app_state as mcp_set_state
@@ -203,7 +205,7 @@ async def lifespan(app: FastAPI):
                 # which bundles its own lifespan and internal /mcp route that don't work
                 # when mounted as a sub-app)
                 session_manager = StreamableHTTPSessionManager(
-                    app=mcp._mcp_server,
+                    app=mcp._lowlevel_server,
                     json_response=False,
                     stateless=True,
                 )

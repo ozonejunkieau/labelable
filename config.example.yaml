@@ -76,3 +76,41 @@ printers:
   #     type: serial
   #     device: /dev/ttyUSB0
   #     baudrate: 9600
+
+  # Brother P-Touch over USB (local machine)
+  # - name: ptouch
+  #   type: ptouch
+  #   connection:
+  #     type: usb
+  #     vendor_id: 0x04F9   # Brother
+  #     product_id: 0x20AF  # PT-P710BT
+
+  # Brother P-Touch via the polling bridge daemon (labelable-bridge).
+  # Usually created automatically when a daemon registers.
+  # - name: remote-ptouch
+  #   type: ptouch
+  #   connection:
+  #     type: bridge
+  #     serial_number: "ABC123"
+  #     tape_width_mm: 9
+
+  # Brother P-Touch behind an ESP32-P4 network bridge (ptouch-bridge firmware).
+  # The device exposes GET /status and POST /print over plain HTTP and builds
+  # the printer command stream itself, so Labelable sends raw raster rows.
+  # - name: net-ptouch
+  #   type: ptouch
+  #   connection:
+  #     type: ptouch_bridge
+  #     host: esp32-ptouch-e0ca5f  # hostname or IP (DHCP - prefer the hostname)
+  #     port: 80
+  #     # Bearer token for POST /print. Falls back to the
+  #     # LABELABLE_PTOUCH_BRIDGE_TOKEN environment variable when unset.
+  #     token: "changeme"
+  #     # Fallback media type used only when the device has never read the
+  #     # printer. Live status always wins. 3 = non-laminated.
+  #     media_type: 3
+  #     # Skip the device's tape width validation. Unsafe: content outside the
+  #     # printable pin window is silently discarded.
+  #     force: false
+  #   healthcheck:
+  #     interval: 60

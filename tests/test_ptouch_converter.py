@@ -1,5 +1,6 @@
 """Tests for P-Touch raster converter and PackBits encoding."""
 
+import hashlib
 import struct
 
 import pytest
@@ -10,8 +11,27 @@ from labelable.templates.converters.ptouch import (
     PRINT_HEAD_PIXELS,
     TAPE_SPECS,
     _packbits_encode,
+    batch_image_to_ptouch_raster,
+    batch_image_to_raster_rows,
+    encode_raster_rows,
     image_to_ptouch_raster,
+    image_to_raster_rows,
 )
+
+
+def _pin_set(row: bytes) -> set[int]:
+    """Return the set of head pin indices set in a 16-byte raster row."""
+    return {n for n in range(PRINT_HEAD_PIXELS) if row[n // 8] & (1 << (7 - (n % 8)))}
+
+
+def _dense_image(w: int, h: int, seed: int = 0) -> Image.Image:
+    """Deterministic mixed-content 1-bit image."""
+    img = Image.new("1", (w, h), color=1)
+    for x in range(w):
+        for y in range(h):
+            if (x * 7 + y * 13 + seed) % 11 < 4:
+                img.putpixel((x, y), 0)
+    return img
 
 
 class TestPackbitsEncoding:
@@ -194,3 +214,254 @@ class TestPTouchRasterConversion:
         # Should succeed without error
         assert line_count > 0
         assert isinstance(raster_data, bytes)
+
+
+class TestRasterRows:
+    """Row-level assertions on the uncompressed 128-pin rows."""
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    def test_every_row_is_16_bytes(self, tape):
+        img = _dense_image(20, 30, seed=tape)
+        rows = image_to_raster_rows(img, tape_width_mm=tape)
+        assert rows
+        assert all(len(r) == BYTES_PER_LINE for r in rows)
+
+        batch_rows = batch_image_to_raster_rows(img, tape_width_mm=tape)
+        assert batch_rows
+        assert all(len(r) == BYTES_PER_LINE for r in batch_rows)
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    def test_margin_pins_are_zero(self, tape):
+        """Pins outside the tape's printable window must never be set."""
+        printable, left, right = TAPE_SPECS[tape]
+        assert left + printable + right == PRINT_HEAD_PIXELS
+
+        # All-black image: every printable pin is a candidate.
+        img = Image.new("1", (20, 30), color=0)
+        for rows in (
+            image_to_raster_rows(img, tape_width_mm=tape),
+            batch_image_to_raster_rows(img, tape_width_mm=tape),
+        ):
+            for row in rows:
+                pins = _pin_set(row)
+                assert all(left <= p < left + printable for p in pins)
+
+    def test_9mm_zero_pins_explicit(self):
+        """9mm tape: only pins 39-88 are printable (spec section 4).
+
+        Bits 0-38 and 89-127 must be zero in every row; content set there is
+        silently discarded by the hardware and shifts the image off-tape.
+        """
+        img = Image.new("1", (20, 30), color=0)  # all black
+        for rows in (
+            image_to_raster_rows(img, tape_width_mm=9),
+            batch_image_to_raster_rows(img, tape_width_mm=9),
+        ):
+            all_pins: set[int] = set()
+            for row in rows:
+                pins = _pin_set(row)
+                assert not (pins & set(range(0, 39)))
+                assert not (pins & set(range(89, 128)))
+                all_pins |= pins
+            assert all_pins  # something is actually printed
+
+    def test_tape_specs_match_bridge_spec(self):
+        """Margin table must match ptouch-bridge IMPLEMENTATION.md section 4."""
+        assert TAPE_SPECS[6] == (32, 48, 48)
+        assert TAPE_SPECS[9] == (50, 39, 39)
+        assert TAPE_SPECS[12] == (70, 29, 29)
+        assert TAPE_SPECS[18] == (112, 8, 8)
+        assert TAPE_SPECS[24] == (128, 0, 0)
+
+    def test_all_white_rows_are_zero(self):
+        img = Image.new("1", (20, 30), color=1)
+        rows = image_to_raster_rows(img, tape_width_mm=9)
+        assert rows
+        assert all(row == b"\x00" * BYTES_PER_LINE for row in rows)
+
+    def test_unsupported_tape_width_raises(self):
+        img = Image.new("1", (20, 10), color=1)
+        with pytest.raises(ValueError, match="Unsupported tape width"):
+            image_to_raster_rows(img, tape_width_mm=15)
+        with pytest.raises(ValueError, match="Unsupported tape width"):
+            batch_image_to_raster_rows(img, tape_width_mm=15)
+
+
+class TestEncoderRoundTrip:
+    """The Z/G/g encoders must stay byte-identical to the pre-refactor output."""
+
+    @staticmethod
+    def _reference_encode(rows: list[bytes], compression: bool) -> bytes:
+        """Re-implementation of the pre-refactor inline encoding loop."""
+        out = bytearray()
+        for line_data in rows:
+            is_blank = all(b == 0 for b in line_data)
+            if is_blank:
+                out.extend(b"Z")
+            elif compression:
+                compressed = _packbits_encode(bytes(line_data))
+                out.extend(b"G")
+                out.extend(struct.pack("<H", len(compressed)))
+                out.extend(compressed)
+            else:
+                out.extend(b"g")
+                out.extend(struct.pack("<H", len(line_data)))
+                out.extend(line_data)
+        return bytes(out)
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    @pytest.mark.parametrize("compression", [True, False])
+    def test_single_encoder_matches_reference(self, tape, compression):
+        img = _dense_image(20, 40, seed=tape)
+        rows = image_to_raster_rows(img, tape_width_mm=tape)
+        data, count = image_to_ptouch_raster(img, tape_width_mm=tape, compression=compression)
+        assert count == len(rows)
+        assert data == self._reference_encode(rows, compression)
+        assert data == encode_raster_rows(rows, compression=compression)
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    @pytest.mark.parametrize("compression", [True, False])
+    def test_batch_encoder_matches_reference(self, tape, compression):
+        img = _dense_image(30, 17, seed=tape + 1)
+        rows = batch_image_to_raster_rows(img, tape_width_mm=tape)
+        data, count = batch_image_to_ptouch_raster(img, tape_width_mm=tape, compression=compression)
+        assert count == len(rows)
+        assert data == self._reference_encode(rows, compression)
+
+    # Digests captured from the pre-refactor implementation, for the batch
+    # path only. The single-label digests were deliberately dropped: they
+    # pinned output in which the feed extent was written to the print head
+    # axis and the tape extent to the feed axis. Orientation is now asserted
+    # structurally by TestSingleLabelOrientation instead of by hash.
+    GOLDEN = {
+        ("b", 9, 20, 40, True): "773d1a40fbe2b7699a529361d5f73c41612a2ab206177ea8bd4de9cc1bf125b5",
+        ("b", 18, 30, 17, False): "ac08033593355e978bc9a5556b4a4375ad653c802a43fd89daab416607f3aa23",
+        ("b", 24, 5, 5, True): "e4f3076c459b5cdb3f75bdeedca2d7c14d4d63a91c4a4adfa01d6f8cd21f3797",
+    }
+
+    @pytest.mark.parametrize("key,digest", sorted(GOLDEN.items()))
+    def test_matches_pre_refactor_digests(self, key, digest):
+        kind, tape, w, h, compression = key
+        img = _dense_image(w, h, seed=tape + w + h)
+        fn = image_to_ptouch_raster if kind == "s" else batch_image_to_ptouch_raster
+        data, _count = fn(img, tape_width_mm=tape, compression=compression)
+        assert hashlib.sha256(data).hexdigest() == digest
+
+
+class TestSingleLabelOrientation:
+    """Single-label geometry: pins carry the tape axis, rows the feed axis.
+
+    Single-label templates are authored portrait (x = tape width,
+    y = feed). The converter rotates that into the batch strip layout, so
+    a rotated single label and the equivalent batch strip must rasterise
+    to the same thing.
+    """
+
+    @staticmethod
+    def _to_authored(strip: Image.Image) -> Image.Image:
+        """Invert the converter's rotation, turning a strip into a label.
+
+        Forward transform is ``rot90(authored)``, so the inverse is
+        ``rot270(strip)``.
+        """
+        return strip.rotate(-90, expand=True)
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    def test_matches_batch_path_for_equivalent_input(self, tape):
+        """A label and the strip it rotates into must produce identical rows."""
+        printable_px, _left, _right = TAPE_SPECS[tape]
+        # Height already equals the printable window, so neither path rescales
+        # and the two are directly comparable.
+        strip = _dense_image(37, printable_px, seed=tape)
+        authored = self._to_authored(strip)
+        assert authored.size == (printable_px, 37)
+
+        assert image_to_raster_rows(authored, tape_width_mm=tape) == batch_image_to_raster_rows(
+            strip, tape_width_mm=tape
+        )
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    def test_row_count_tracks_the_feed_axis(self, tape):
+        """Row count follows the authored height, not its width."""
+        printable_px, _left, _right = TAPE_SPECS[tape]
+        # Authored portrait: width = tape axis (already printable-sized so no
+        # rescale), height = feed. A long label must yield many rows.
+        authored = _dense_image(printable_px, 200, seed=tape)
+        rows = image_to_raster_rows(authored, tape_width_mm=tape)
+        assert len(rows) == 200
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    def test_long_label_is_not_clipped_into_the_margin(self, tape):
+        """Every set pin stays inside the printable window, however long."""
+        printable_px, left, _right = TAPE_SPECS[tape]
+        authored = _dense_image(printable_px, 300, seed=tape + 3)
+        rows = image_to_raster_rows(authored, tape_width_mm=tape)
+
+        window = set(range(left, left + printable_px))
+        for row in rows:
+            assert _pin_set(row) <= window
+
+    def test_asymmetric_marker_lands_on_the_feed_axis(self):
+        """A mark at the top of the label prints at the start of the tape."""
+        tape = 9
+        printable_px, left, _right = TAPE_SPECS[tape]
+        # Portrait label, black bar across the full tape width at the top.
+        authored = Image.new("1", (printable_px, 100), color=1)
+        for x in range(printable_px):
+            for y in range(10):
+                authored.putpixel((x, y), 0)
+
+        rows = image_to_raster_rows(authored, tape_width_mm=tape)
+        assert len(rows) == 100
+
+        # Authored y is the feed axis, so a bar at the top of the label
+        # prints in the first rows, spanning the full printable window.
+        assert _pin_set(rows[0]) == set(range(left, left + printable_px))
+        assert _pin_set(rows[9]) == set(range(left, left + printable_px))
+        # ...and nothing after it.
+        assert all(not _pin_set(r) for r in rows[10:])
+
+    def test_content_is_centred_in_the_printable_window(self):
+        """A label narrower than the tape sits centred, not flush to one edge."""
+        tape = 24  # printable 128, left margin 0
+        printable_px, left, _right = TAPE_SPECS[tape]
+        narrow = 40
+        authored = Image.new("1", (narrow, 20), color=0)  # all black
+
+        rows = image_to_raster_rows(authored, tape_width_mm=tape)
+        pins = _pin_set(rows[0])
+        expected_offset = left + (printable_px - narrow) // 2
+        assert pins == set(range(expected_offset, expected_offset + narrow))
+
+    def test_transform_is_a_rotation_not_a_reflection(self):
+        """An orientation-reversing transform would print every glyph mirrored.
+
+        Three corners of the authored label pin the mapping down. Walking
+        left-to-right along the label's top edge must walk consistently
+        along one direction of the print head axis, and a reflection
+        (rotate + mirror, as an earlier version used) would reverse the
+        handedness relative to the feed axis.
+        """
+        tape = 24  # printable 128, left margin 0 - no scaling, no offset
+        w, h = 40, 60
+        img = Image.new("1", (w, h), color=1)
+        img.putpixel((0, 0), 0)  # top-left
+        img.putpixel((w - 1, 0), 0)  # top-right
+        img.putpixel((0, h - 1), 0)  # bottom-left
+
+        rows = image_to_raster_rows(img, tape_width_mm=tape)
+
+        def only_pin(row_idx: int) -> set[int]:
+            return _pin_set(rows[row_idx])
+
+        # Authored y is the feed axis: the two top corners share row 0,
+        # the bottom-left corner is at the last row.
+        top = only_pin(0)
+        assert len(top) == 2
+        assert only_pin(h - 1) == {max(top)}
+
+        # Authored x maps to the pin axis reversed (rotate 90 CCW), so
+        # top-left sits at the high pin and top-right at the low pin.
+        # Crucially the *span* is the label width - a reflection would
+        # place the bottom-left corner against the opposite pin instead.
+        assert max(top) - min(top) == w - 1

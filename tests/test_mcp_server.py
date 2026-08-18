@@ -293,7 +293,8 @@ class TestUpdateTemplate:
 async def _call_tool(mcp_server, tool_name: str, arguments: dict) -> str:
     """Call an MCP tool directly and return the text result."""
     result = await mcp_server.call_tool(tool_name, arguments)
-    # FastMCP call_tool returns (content_list, metadata) tuple
-    content_list = result[0]
+    # MCPServer.call_tool returns a CallToolResult; mcp 1.x returned a
+    # (content_list, metadata) tuple.
+    content_list = result.content
     assert len(content_list) > 0
     return content_list[0].text

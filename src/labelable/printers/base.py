@@ -71,6 +71,16 @@ class BasePrinter(ABC):
         """Get cached model/version info."""
         return self._model_info
 
+    @property
+    def output_format(self) -> str:
+        """Template engine output format this transport expects.
+
+        Defaults to the printer type ("zpl", "epl2", "ptouch"). Transports
+        that build the printer command stream themselves override this
+        (e.g. "ptouch_raw" for the ptouch_bridge network device).
+        """
+        return self.config.type.value
+
     @abstractmethod
     async def connect(self) -> None:
         """Establish connection to the printer.

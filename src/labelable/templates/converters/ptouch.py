@@ -9,8 +9,9 @@ PRINT_HEAD_PIXELS = 128
 BYTES_PER_LINE = PRINT_HEAD_PIXELS // 8  # 16
 
 # Tape width → (printable pixels, left margin, right margin)
+# Values come from the ptouch-bridge interface spec §4 (128-pin head).
 TAPE_SPECS: dict[int, tuple[int, int, int]] = {
-    6: (32, 52, 44),
+    6: (32, 48, 48),
     9: (50, 39, 39),
     12: (70, 29, 29),
     18: (112, 8, 8),
@@ -71,15 +72,173 @@ def _packbits_encode(data: bytes) -> bytes:
     return bytes(result)
 
 
+def _check_tape_width(tape_width_mm: int) -> tuple[int, int, int]:
+    """Look up the tape spec, raising ValueError for unsupported widths."""
+    if tape_width_mm not in TAPE_SPECS:
+        raise ValueError(f"Unsupported tape width: {tape_width_mm}mm. Supported: {sorted(TAPE_SPECS.keys())}")
+    return TAPE_SPECS[tape_width_mm]
+
+
+def encode_raster_rows(rows: list[bytes], compression: bool = True) -> bytes:
+    """Encode 16-byte raster rows as PTCBP Z/G/g line commands.
+
+    Args:
+        rows: Raster rows, each exactly BYTES_PER_LINE bytes.
+        compression: Use TIFF PackBits compression for non-blank lines.
+
+    Returns:
+        Concatenated line commands.
+    """
+    raster_bytes = bytearray()
+
+    for line_data in rows:
+        if not any(line_data):
+            # Z command = blank raster line
+            raster_bytes.extend(b"Z")
+        elif compression:
+            compressed = _packbits_encode(line_data)
+            raster_bytes.extend(b"G")
+            raster_bytes.extend(struct.pack("<H", len(compressed)))
+            raster_bytes.extend(compressed)
+        else:
+            raster_bytes.extend(b"g")
+            raster_bytes.extend(struct.pack("<H", len(line_data)))
+            raster_bytes.extend(line_data)
+
+    return bytes(raster_bytes)
+
+
+def _strip_to_rows(image: Image.Image, pin_offset: int) -> list[bytes]:
+    """Rasterise a strip laid out with width = feed direction, height = tape width.
+
+    Each image column becomes one 16-byte raster row; image row 0 maps to
+    print head pin ``pin_offset``. The caller must ensure the strip is already
+    scaled so that ``pin_offset + height <= PRINT_HEAD_PIXELS``.
+
+    Args:
+        image: 1-bit strip, width = feed direction, height = tape width.
+        pin_offset: Print head pin that image row 0 maps to.
+
+    Returns:
+        List of rows, each exactly BYTES_PER_LINE (16) bytes, MSB first,
+        1 = black.
+    """
+    img_w, img_h = image.size
+    pixels: list[int] = list(image.getdata())  # type: ignore[arg-type]
+    rows: list[bytes] = []
+
+    for col in range(img_w):
+        line_data = bytearray(BYTES_PER_LINE)
+
+        for row in range(img_h):
+            head_pos = pin_offset + row
+
+            pixel_idx = row * img_w + col
+            # PIL mode "1": 0 = black, non-zero = white
+            # P-Touch: 1 = black, 0 = white
+            if pixels[pixel_idx] == 0:
+                byte_idx = head_pos // 8
+                bit = 7 - (head_pos % 8)
+                line_data[byte_idx] |= 1 << bit
+
+        rows.append(bytes(line_data))
+
+    return rows
+
+
+def image_to_raster_rows(
+    image: Image.Image,
+    tape_width_mm: int = 24,
+) -> list[bytes]:
+    """Convert a PIL image to uncompressed 128-pin raster rows.
+
+    Single-label templates are authored portrait: x is the tape width axis,
+    y is the tape feed axis. Rotating 90 CCW and mirroring produces the same
+    layout a batch strip already uses (width = feed, height = tape width),
+    which is then rasterised column by column. Pins outside the tape's
+    printable window are always zero.
+
+    Args:
+        image: PIL Image to convert (should be pre-cropped to content).
+        tape_width_mm: Tape width in mm (6, 9, 12, 18, or 24).
+
+    Returns:
+        List of rows, each exactly BYTES_PER_LINE (16) bytes, MSB first,
+        1 = black.
+
+    Raises:
+        ValueError: If tape width is not supported.
+    """
+    printable_px, left_margin, _right_margin = _check_tape_width(tape_width_mm)
+
+    # Convert to 1-bit
+    if image.mode != "1":
+        image = image.convert("1")
+
+    # Rotate 90 CCW into the batch strip layout: authored x (the tape width
+    # axis) becomes the print head axis, authored y becomes the feed axis.
+    # This must be a pure rotation - combining it with a mirror, as an earlier
+    # version did, is a reflection and prints every glyph back to front.
+    rotated = image.rotate(90, expand=True)
+
+    # Scale down to fit the printable window, preserving aspect ratio.
+    rot_w, rot_h = rotated.size
+    if rot_h > printable_px:
+        scale = printable_px / rot_h
+        new_w = max(1, int(rot_w * scale))
+        rotated = rotated.resize((new_w, printable_px), Image.Resampling.NEAREST)
+        rot_w, rot_h = rotated.size
+
+    # Centre the content within the tape's printable pin window
+    pin_offset = left_margin + (printable_px - rot_h) // 2
+
+    return _strip_to_rows(rotated, pin_offset)
+
+
+def batch_image_to_raster_rows(
+    image: Image.Image,
+    tape_width_mm: int = 24,
+) -> list[bytes]:
+    """Convert a horizontal batch strip to uncompressed 128-pin raster rows.
+
+    The batch strip is already laid out with width = feed direction and
+    height = tape width, so it only needs scaling to the printable window
+    before being rasterised column by column.
+
+    Args:
+        image: Horizontal batch strip (width=feed, height=tape_width).
+        tape_width_mm: Tape width in mm (6, 9, 12, 18, or 24).
+
+    Returns:
+        List of rows, each exactly BYTES_PER_LINE (16) bytes.
+
+    Raises:
+        ValueError: If tape width is not supported.
+    """
+    printable_px, left_margin, _right_margin = _check_tape_width(tape_width_mm)
+
+    # Convert to 1-bit
+    if image.mode != "1":
+        image = image.convert("1")
+
+    img_w, img_h = image.size
+
+    # Scale only the tape direction (height) to fit printable area.
+    # Width (feed direction) stays unchanged - each column = one raster line.
+    if img_h != printable_px:
+        image = image.resize((img_w, printable_px), Image.Resampling.NEAREST)
+
+    return _strip_to_rows(image, left_margin)
+
+
 def image_to_ptouch_raster(
     image: Image.Image,
     tape_width_mm: int = 24,
     compression: bool = True,
 ) -> tuple[bytes, int]:
-    """Convert a PIL image to P-Touch raster data.
+    """Convert a PIL image to P-Touch raster line commands.
 
-    The image is rotated 90 CCW and mirrored horizontally, then centered
-    within the 128px print head width according to tape margins.
+    Thin Z/G/g encoder over :func:`image_to_raster_rows`.
 
     Args:
         image: PIL Image to convert (should be pre-cropped to content).
@@ -92,68 +251,8 @@ def image_to_ptouch_raster(
     Raises:
         ValueError: If tape width is not supported.
     """
-    if tape_width_mm not in TAPE_SPECS:
-        raise ValueError(f"Unsupported tape width: {tape_width_mm}mm. Supported: {sorted(TAPE_SPECS.keys())}")
-
-    printable_px, left_margin, _right_margin = TAPE_SPECS[tape_width_mm]
-
-    # Convert to 1-bit
-    if image.mode != "1":
-        image = image.convert("1")
-
-    # Rotate 90 CCW and mirror horizontally
-    # This transforms the image so that columns become raster lines
-    rotated = image.rotate(90, expand=True).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-
-    # Scale to fit printable area if wider than tape allows
-    rot_w, rot_h = rotated.size
-    if rot_h > printable_px:
-        scale = printable_px / rot_h
-        new_w = max(1, int(rot_w * scale))
-        rotated = rotated.resize((new_w, printable_px), Image.Resampling.NEAREST)
-        rot_w, rot_h = rotated.size
-
-    # Create 128px-wide canvas and center the content
-    raster_line_count = rot_w
-    canvas = Image.new("1", (PRINT_HEAD_PIXELS, raster_line_count), color=1)  # white
-    canvas.paste(rotated, (left_margin, 0))
-
-    # Convert to raster bytes
-    pixels: list[int] = list(canvas.getdata())  # type: ignore[arg-type]
-    raster_bytes = bytearray()
-
-    for line_idx in range(raster_line_count):
-        # Pack 128 pixels into 16 bytes, MSB first, 1=black 0=white
-        line_data = bytearray(BYTES_PER_LINE)
-        is_blank = True
-
-        for byte_idx in range(BYTES_PER_LINE):
-            byte_val = 0
-            for bit in range(8):
-                pixel_x = byte_idx * 8 + bit
-                pixel_idx = line_idx * PRINT_HEAD_PIXELS + pixel_x
-                # PIL mode "1": 0 = black, non-zero = white
-                # P-Touch: 1 = black, 0 = white
-                if pixels[pixel_idx] == 0:
-                    byte_val |= 1 << (7 - bit)
-            line_data[byte_idx] = byte_val
-            if byte_val != 0:
-                is_blank = False
-
-        if is_blank:
-            # Z command = blank raster line
-            raster_bytes.extend(b"Z")
-        elif compression:
-            compressed = _packbits_encode(bytes(line_data))
-            raster_bytes.extend(b"G")
-            raster_bytes.extend(struct.pack("<H", len(compressed)))
-            raster_bytes.extend(compressed)
-        else:
-            raster_bytes.extend(b"g")
-            raster_bytes.extend(struct.pack("<H", len(line_data)))
-            raster_bytes.extend(line_data)
-
-    return bytes(raster_bytes), raster_line_count
+    rows = image_to_raster_rows(image, tape_width_mm=tape_width_mm)
+    return encode_raster_rows(rows, compression=compression), len(rows)
 
 
 def batch_image_to_ptouch_raster(
@@ -161,13 +260,9 @@ def batch_image_to_ptouch_raster(
     tape_width_mm: int = 24,
     compression: bool = True,
 ) -> tuple[bytes, int]:
-    """Convert a horizontal batch strip to P-Touch raster data.
+    """Convert a horizontal batch strip to P-Touch raster line commands.
 
-    Unlike image_to_ptouch_raster (which rotates tall/narrow single-label
-    images), this reads the horizontal strip column-by-column: each column
-    becomes one raster line and each row maps to a print head position.
-
-    The batch strip has width = feed direction, height = tape width.
+    Thin Z/G/g encoder over :func:`batch_image_to_raster_rows`.
 
     Args:
         image: Horizontal batch strip (width=feed, height=tape_width).
@@ -180,55 +275,5 @@ def batch_image_to_ptouch_raster(
     Raises:
         ValueError: If tape width is not supported.
     """
-    if tape_width_mm not in TAPE_SPECS:
-        raise ValueError(f"Unsupported tape width: {tape_width_mm}mm. Supported: {sorted(TAPE_SPECS.keys())}")
-
-    printable_px, left_margin, _right_margin = TAPE_SPECS[tape_width_mm]
-
-    # Convert to 1-bit
-    if image.mode != "1":
-        image = image.convert("1")
-
-    img_w, img_h = image.size
-
-    # Scale only the tape direction (height) to fit printable area.
-    # Width (feed direction) stays unchanged — each column = one raster line.
-    if img_h != printable_px:
-        image = image.resize((img_w, printable_px), Image.Resampling.NEAREST)
-        img_w, img_h = image.size
-
-    pixels: list[int] = list(image.getdata())  # type: ignore[arg-type]
-    raster_line_count = img_w
-    raster_bytes = bytearray()
-
-    for col in range(img_w):
-        line_data = bytearray(BYTES_PER_LINE)
-        is_blank = True
-
-        for row in range(img_h):
-            # Row 0 (top of image) → low head position (left_margin)
-            # Row img_h-1 (bottom) → high head position
-            head_pos = left_margin + row
-
-            pixel_idx = row * img_w + col
-            # PIL mode "1": 0 = black, non-zero = white
-            # P-Touch: 1 = black, 0 = white
-            if pixels[pixel_idx] == 0:
-                byte_idx = head_pos // 8
-                bit = 7 - (head_pos % 8)
-                line_data[byte_idx] |= 1 << bit
-                is_blank = False
-
-        if is_blank:
-            raster_bytes.extend(b"Z")
-        elif compression:
-            compressed = _packbits_encode(bytes(line_data))
-            raster_bytes.extend(b"G")
-            raster_bytes.extend(struct.pack("<H", len(compressed)))
-            raster_bytes.extend(compressed)
-        else:
-            raster_bytes.extend(b"g")
-            raster_bytes.extend(struct.pack("<H", len(line_data)))
-            raster_bytes.extend(line_data)
-
-    return bytes(raster_bytes), raster_line_count
+    rows = batch_image_to_raster_rows(image, tape_width_mm=tape_width_mm)
+    return encode_raster_rows(rows, compression=compression), len(rows)

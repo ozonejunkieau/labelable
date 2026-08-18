@@ -320,8 +320,8 @@ async def print_label(template_name: str, request: PrintRequest) -> PrintRespons
             image_engine = _app_state.get("image_engine")
             if not image_engine:
                 raise HTTPException(status_code=500, detail="Image engine not initialized")
-            # Determine output format from printer type
-            output_format = printer.config.type.value  # "zpl" or "epl2"
+            # Determine output format from the printer transport
+            output_format = printer.output_format  # "zpl", "epl2", "ptouch", "ptouch_raw"
             rendered = image_engine.render(template, render_context, output_format=output_format)
         else:
             rendered = jinja_engine.render(template, render_context)

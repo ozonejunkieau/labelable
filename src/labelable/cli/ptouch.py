@@ -104,6 +104,14 @@ async def _print(
 
     engine = ImageTemplateEngine(custom_font_paths=font_paths if font_paths else None)
 
+    config = PrinterConfig(
+        name="ptouch-cli",
+        type=PrinterType.PTOUCH,
+        connection=connection,
+        healthcheck=HealthcheckConfig(),
+    )
+    printer = PTouchPrinter(config)
+
     try:
         if preview_path is not None:
             output = engine.render_preview(template, context, format="PNG")
@@ -112,23 +120,14 @@ async def _print(
             print(f"Preview saved to {preview_path}")
             return 0
 
-        # Render to ptouch raster format
-        output = engine.render(template, context, output_format="ptouch")
+        # Render in the format this transport expects
+        output = engine.render(template, context, output_format=printer.output_format)
 
         if dump_path is not None:
             with open(dump_path, "wb") as f:
                 f.write(output)
             print(f"Raw data saved to {dump_path} ({len(output)} bytes)")
             return 0
-
-        # Send to printer
-        config = PrinterConfig(
-            name="ptouch-cli",
-            type=PrinterType.PTOUCH,
-            connection=connection,
-            healthcheck=HealthcheckConfig(),
-        )
-        printer = PTouchPrinter(config)
 
         print(f"Connecting to USB {connection.vendor_id:04x}:{connection.product_id:04x}...")
         await printer.connect()

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections, and Brother P-Touch label printers via USB or remotely via the bridge daemon.
+Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections, and Brother P-Touch label printers via USB, remotely via the bridge daemon, or over the network via an ESP32-P4 ptouch-bridge device.
 
 ## Development Setup
 
@@ -44,6 +44,7 @@ src/labelable/
 │   ├── epl2.py         # Zebra EPL2 (TCP/serial/HA)
 │   ├── ptouch.py       # Brother P-Touch (USB via PyUSB)
 │   ├── bridge.py       # Bridge P-Touch (long-polling job relay)
+│   ├── ptouch_net.py   # Networked P-Touch (ESP32-P4 ptouch-bridge, HTTP)
 │   └── ptouch_protocol.py # P-Touch PTCBP raster protocol
 ├── templates/          # Template engines
 │   ├── engine.py       # Abstract TemplateEngine
@@ -151,6 +152,21 @@ printers:
       type: bridge
       serial_number: "ABC123"           # USB serial for identity
       # tape_width_mm: 9               # Optional, reported by daemon
+
+  # ESP32-P4 network bridge (ptouch-bridge firmware).
+  # The device hosts the PT-P710BT over USB and exposes GET /status and
+  # POST /print over plain HTTP. It does NOT speak PTCBP - it accepts
+  # pre-rasterised uncompressed 16-byte raster rows as base64 and builds
+  # the printer command stream itself.
+  - name: net-ptouch
+    type: ptouch
+    connection:
+      type: ptouch_bridge
+      host: esp32-ptouch-e0ca5f   # hostname or IP (DHCP - prefer the hostname)
+      # port: 80
+      token: "changeme"           # or LABELABLE_PTOUCH_BRIDGE_TOKEN env var
+      # media_type: 3             # Fallback only; live status wins
+      # force: false              # Skip tape width validation (unsafe)
 
 templates_dir: ./templates
 ```
@@ -507,6 +523,70 @@ Note: Replace `localhost:7979` with the add-on's internal hostname if accessing 
 - `Z` - Blank raster line
 - `0x1A` (SUB) - Print and feed
 
+### P-Touch tape margins (128-pin head)
+
+Every raster row is always exactly 16 bytes regardless of tape width; narrow
+tape means zeroing the unused margin pins. Values from the ptouch-bridge
+interface spec, §4:
+
+| Tape | Left margin pins | Print pins | Right margin pins |
+|------|------------------|------------|-------------------|
+| 6 mm | 48 | 32 | 48 |
+| 9 mm | 39 | 50 | 39 |
+| 12 mm | 29 | 70 | 29 |
+| 18 mm | 8 | 112 | 8 |
+| 24 mm | 0 | 128 | 0 |
+
+### P-Touch single-label geometry
+
+Single-label templates are authored portrait: **x is the tape width axis**
+(so `dimensions.width_mm` matches `ptouch_tape_width_mm`) and **y is the tape
+feed axis**, cropped to content. `image_to_raster_rows` rotates that 90 degrees
+CCW into the same layout a batch strip already uses - width = feed,
+height = tape width - and both paths then share one column-by-column
+rasteriser.
+
+Two invariants that are easy to break, and are covered by
+`TestSingleLabelOrientation`:
+
+- The rotation must be a **pure rotation**. Combining it with a mirror is a
+  reflection and prints every glyph back to front.
+- Row count follows the **feed** extent and set pins must stay inside the
+  tape's printable window. Writing the feed extent to the print head axis
+  transposes the label and silently clips it, since the hardware discards
+  content outside the printable pins.
+
+### P-Touch transports
+
+Three independent transports, all `type: ptouch`, selected by connection type:
+
+| Connection | Class | Output format | Notes |
+|------------|-------|---------------|-------|
+| `usb` | `PTouchPrinter` | `ptouch` | Local PyUSB, full PTCBP command stream |
+| `bridge` | `BridgePTouchPrinter` | `ptouch` | Remote daemon long-polls for jobs |
+| `ptouch_bridge` | `PTouchNetPrinter` | `ptouch_raw` | ESP32-P4 device over HTTP |
+
+`BasePrinter.output_format` decides which format the image engine renders.
+It defaults to the printer type; `PTouchNetPrinter` overrides it to
+`ptouch_raw`, which emits bare concatenated 16-byte raster rows with no Z/G/g
+framing, no compression and no commands (row count is `len(data) // 16`).
+
+**ESP32-P4 ptouch-bridge specifics:**
+- `GET /status` is unauthenticated; `POST /print` needs `Authorization: Bearer`.
+- Ready iff `usb_connected && state == "idle" && errors == []`.
+- Status shape varies: `media_width_mm` may be `null`, and `media_type` /
+  `tape_color_id` are **absent entirely** (not null) before the first
+  successful printer poll.
+- `202` is admission only, not completion. The transport polls `/status` until
+  the state leaves `printing` and `jobs_printed`/`jobs_failed` moves.
+- Single job, no queue. `409` (busy) and `503` (not connected) are retried with
+  bounded backoff; `400`/`401`/`413`/`500` fail immediately; `422` is a tape
+  width mismatch.
+- Print options are compiled into the firmware (auto-cut on, chain-print off,
+  14-dot margin), so `ptouch_auto_cut` / `ptouch_chain_print` are ignored on
+  this transport and a warning is logged when a template sets them.
+  `ptouch_margin_mm` still applies - it is baked into the image during cropping.
+
 ## CLI Tools
 
 ### labelable-render
@@ -658,9 +738,14 @@ just test        # or: uv run pytest
 Do NOT commit if either fails. Fix issues first.
 
 ### 1. Update Version Numbers
-Update version in both files (they must match):
+Update the version in **all four** files - `scripts/pre-commit` refuses the
+commit unless they agree:
 - `pyproject.toml` - `version = "X.Y.Z"`
+- `src/labelable/__init__.py` - `__version__ = "X.Y.Z"`
 - `labelable/config.yaml` - `version: "X.Y.Z"`
+- `custom_components/zebra_printer/manifest.json` - `"version": "X.Y.Z"`
+
+Then re-run `uv lock` so the project version in `uv.lock` follows.
 
 ### 2. Update Changelog
 Edit `labelable/CHANGELOG.md` (Home Assistant add-on changelog):

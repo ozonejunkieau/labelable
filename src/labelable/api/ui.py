@@ -914,7 +914,7 @@ async def submit_print(
             if not image_engine:
                 raise RuntimeError("Image engine not initialized")
             # Determine output format from printer type
-            output_format = printer_obj.config.type.value  # "zpl" or "epl2"
+            output_format = printer_obj.output_format  # "zpl", "epl2", "ptouch", "ptouch_raw"
             rendered = image_engine.render(template, form_data, output_format=output_format)
         else:
             rendered = jinja_engine.render(template, form_data)
