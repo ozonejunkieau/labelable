@@ -3,7 +3,9 @@
 import hashlib
 from typing import Any
 
-from jinja2 import BaseLoader, Environment, TemplateSyntaxError, UndefinedError
+from jinja2 import BaseLoader, TemplateSyntaxError, UndefinedError
+from jinja2.exceptions import SecurityError
+from jinja2.sandbox import SandboxedEnvironment
 
 from labelable.models.template import TemplateConfig
 from labelable.templates.engine import BaseTemplateEngine, TemplateError
@@ -31,7 +33,11 @@ class JinjaTemplateEngine(BaseTemplateEngine):
     SUPPORTED_TYPES = {"zpl", "epl2"}
 
     def __init__(self) -> None:
-        self._env = Environment(
+        # Sandboxed: template bodies can be created over the REST API and MCP,
+        # so they are untrusted input. A plain Environment lets a template walk
+        # from any object to Python internals (``cycler.__init__.__globals__``)
+        # and run arbitrary code inside the add-on.
+        self._env = SandboxedEnvironment(
             loader=StringLoader(),
             autoescape=False,  # No HTML escaping for printer commands
             keep_trailing_newline=True,
@@ -68,6 +74,8 @@ class JinjaTemplateEngine(BaseTemplateEngine):
 
         except TemplateSyntaxError as e:
             raise TemplateError(f"Template syntax error: {e}") from e
+        except SecurityError as e:
+            raise TemplateError(f"Template uses a disallowed operation: {e}") from e
         except UndefinedError as e:
             raise TemplateError(f"Undefined variable in template: {e}") from e
         except ValueError as e:

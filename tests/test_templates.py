@@ -226,3 +226,35 @@ class TestJinjaEngineErrorPaths:
         with patch.object(engine._env, "from_string", side_effect=RuntimeError("boom")):
             with pytest.raises(TemplateError, match="Failed to render template"):
                 engine.render(template, {})
+
+
+class TestJinjaSandbox:
+    """Template bodies arrive over REST and MCP, so they are untrusted."""
+
+    def _template(self, body: str) -> TemplateConfig:
+        return TemplateConfig(
+            name="sandbox",
+            dimensions=LabelDimensions(width_mm=50, height_mm=25),
+            supported_printers=[PrinterType.ZPL],
+            fields=[TemplateField(name="name", type=FieldType.STRING, required=False, default="x")],
+            template=body,
+        )
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "{{ cycler.__init__.__globals__.os.getcwd() }}",
+            "{{ ''.__class__.__mro__[1].__subclasses__() }}",
+            "{{ lipsum.__globals__['os'].popen('id').read() }}",
+            "{{ name.__class__.__base__.__subclasses__() }}",
+        ],
+    )
+    def test_python_internals_are_blocked(self, body: str):
+        with pytest.raises(TemplateError):
+            JinjaTemplateEngine().render(self._template(body), {})
+
+    def test_ordinary_template_features_still_work(self):
+        body = "^XA{% for c in name.upper().split('-') %}^FD{{ c | md5 }}^FS{% endfor %}{{ name | length }}^XZ"
+        out = JinjaTemplateEngine().render(self._template(body), {"name": "a-b"})
+        assert out.startswith(b"^XA^FD")
+        assert out.endswith(b"3^XZ")
