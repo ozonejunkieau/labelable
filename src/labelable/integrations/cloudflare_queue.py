@@ -111,7 +111,7 @@ async def _process_message(
     printer = printers[printer_name]
 
     # Nack if printer is offline so the message is retried later
-    if not await printer.is_online():
+    if not await printer.online_status():
         logger.debug("CF queue: printer %r offline, will retry job", printer_name)
         return False
 

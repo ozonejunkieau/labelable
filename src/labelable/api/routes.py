@@ -144,7 +144,7 @@ async def list_printers() -> list[PrinterStatus]:
 
     result = []
     for name, printer in printers.items():
-        online = await printer.is_online()
+        online = await printer.online_status()
         queue_size = queue.get_queue_size(name) if queue else 0
         result.append(
             PrinterStatus(
@@ -168,7 +168,7 @@ async def get_printer(name: str) -> PrinterStatus:
         raise HTTPException(status_code=404, detail=f"Printer '{name}' not found")
 
     printer = printers[name]
-    online = await printer.is_online()
+    online = await printer.online_status()
     queue_size = queue.get_queue_size(name) if queue else 0
 
     return PrinterStatus(
@@ -344,7 +344,7 @@ async def print_label(template_name: str, request: PrintRequest) -> PrintRespons
     )
 
     # Check if printer is online
-    is_online = await printer.is_online()
+    is_online = await printer.online_status()
 
     # Submit to queue
     await queue.submit(job)

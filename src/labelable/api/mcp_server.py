@@ -56,7 +56,7 @@ def create_mcp_server() -> MCPServer:
 
         result = []
         for name, printer in printers.items():
-            online = await printer.is_online()
+            online = await printer.online_status()
             queue_size = queue.get_queue_size(name) if queue else 0
             result.append(
                 {

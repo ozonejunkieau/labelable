@@ -298,3 +298,23 @@ class TestHAStatus:
 
         result = await printer._is_online_ha()
         assert result is False
+
+
+class TestOnlineStatus:
+    """Request handlers use the cache when it is fresh instead of probing."""
+
+    async def test_fresh_cache_skips_probe(self, printer):
+        from unittest.mock import AsyncMock
+
+        printer._update_cache(False)
+        printer.is_online = AsyncMock(return_value=True)
+        assert await printer.online_status() is False
+        printer.is_online.assert_not_awaited()
+
+    async def test_no_cache_probes(self, printer):
+        from unittest.mock import AsyncMock
+
+        printer.invalidate_cache()
+        printer.is_online = AsyncMock(return_value=True)
+        assert await printer.online_status() is True
+        printer.is_online.assert_awaited_once()

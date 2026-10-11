@@ -61,6 +61,18 @@ class BasePrinter(ABC):
         """
         return max(STATUS_CACHE_TTL, self.config.healthcheck.interval * 2)
 
+    async def online_status(self) -> bool:
+        """Online status for request handlers: the cache when fresh, else a check.
+
+        Request handlers used to call is_online() every time. On a TCP printer
+        that is a healthcheck on the socket the worker also uses, so two at
+        once collided, and an offline printer blocked every page for seconds.
+        """
+        cached = self.get_cached_online_status()
+        if cached is not None:
+            return cached
+        return await self.is_online()
+
     def _update_cache(self, online: bool) -> None:
         """Update the cached online status."""
         self._cached_online = online

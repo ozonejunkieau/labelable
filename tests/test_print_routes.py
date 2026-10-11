@@ -20,6 +20,8 @@ def _make_mock_printer(name="test-printer", online=True):
     printer.config.type = MagicMock()
     printer.config.type.value = "zpl"
     printer.is_online = AsyncMock(return_value=online)
+    # Request paths use the cache-first online_status(); follow is_online
+    printer.online_status = lambda: printer.is_online()
     printer.last_checked = None
     return printer
 
