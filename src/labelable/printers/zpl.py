@@ -156,7 +156,9 @@ class ZPLPrinter(BasePrinter):
             return online
         except Exception as e:
             logger.warning(f"Printer {self.name}: status check failed - {e}")
-            self._connected = False
+            # Close the handle, not just the flag: the next connect() replaced
+            # the old socket/serial port/USB handle without closing it
+            await self._close_after_error()
             self._update_cache(False)
             return False
 

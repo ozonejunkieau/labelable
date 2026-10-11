@@ -246,3 +246,39 @@ class TestEPL2QuantityDetectionAnchored:
         data = b'N\r\nA50,50,0,1,1,1,N,"x"\r\nP3,1\r\n'
         await printer.print_with_quantity(data, 3)
         assert len(printer.print_calls) == 1
+
+
+class TestStatusCheckFailureClosesConnection:
+    async def test_zpl_socket_closed_when_status_check_fails(self, tcp_config: PrinterConfig):
+        from unittest.mock import AsyncMock, MagicMock
+
+        printer = ZPLPrinter(tcp_config)
+        writer = MagicMock()
+        writer.write = MagicMock()
+        writer.drain = AsyncMock(side_effect=ConnectionResetError("reset"))
+        writer.wait_closed = AsyncMock()
+        printer._writer = writer
+        printer._reader = MagicMock()
+        printer._connected = True
+
+        assert await printer.is_online() is False
+        writer.close.assert_called_once()
+        assert printer._writer is None
+        assert printer.is_connected is False
+
+    async def test_epl2_serial_closed_when_status_check_fails(self):
+        from unittest.mock import MagicMock
+
+        from labelable.models.printer import SerialConnection
+
+        printer = EPL2Printer(
+            PrinterConfig(name="e", type=PrinterType.EPL2, connection=SerialConnection(device="/dev/null"))
+        )
+        port = MagicMock()
+        port.write = MagicMock(side_effect=OSError("gone"))
+        printer._serial = port
+        printer._connected = True
+
+        assert await printer.is_online() is False
+        port.close.assert_called_once()
+        assert printer._serial is None

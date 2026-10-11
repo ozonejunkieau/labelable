@@ -160,6 +160,14 @@ class BasePrinter(ABC):
         for _ in range(quantity):
             await self.print_raw(data)
 
+    async def _close_after_error(self) -> None:
+        """Disconnect after a failed exchange, never raising."""
+        try:
+            await self.disconnect()
+        except Exception as e:
+            logger.debug(f"Printer {self.name}: error while closing - {e}")
+        self._connected = False
+
     async def _send_via_ha(self, data: bytes) -> None:
         """Send raw bytes to the printer via the HA zebra_printer integration.
 
