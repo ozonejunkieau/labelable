@@ -12,6 +12,7 @@ from labelable.api.template_crud import TemplateCRUDError, create_template_on_di
 from labelable.models.job import JobStatus, PrintJob
 from labelable.models.printer import BridgeConnection, HealthcheckConfig, PrinterConfig, PrinterType
 from labelable.models.template import EngineType, TemplateConfig, TemplateField
+from labelable.printers import dpi_mismatch_warning
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +324,8 @@ async def print_label(template_name: str, request: PrintRequest) -> PrintRespons
             # Determine output format from the printer transport
             output_format = printer.output_format  # "zpl", "epl2", "ptouch", "ptouch_raw"
             rendered = image_engine.render(template, render_context, output_format=output_format)
+            if dpi_warning := dpi_mismatch_warning(printer, template):
+                logger.warning(dpi_warning)
         else:
             rendered = jinja_engine.render(template, render_context)
     except Exception as e:

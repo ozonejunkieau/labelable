@@ -1,6 +1,7 @@
 """FastUI web interface for Labelable."""
 
 import base64
+import logging
 from datetime import datetime
 from importlib.metadata import version
 from typing import Any
@@ -14,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import HTMLResponse
 
 from labelable.models.template import EngineType, FieldType
+from labelable.printers import dpi_mismatch_warning
 
 router = APIRouter()
 
@@ -916,6 +918,8 @@ async def submit_print(
             # Determine output format from printer type
             output_format = printer_obj.output_format  # "zpl", "epl2", "ptouch", "ptouch_raw"
             rendered = image_engine.render(template, form_data, output_format=output_format)
+            if dpi_warning := dpi_mismatch_warning(printer_obj, template):
+                logging.getLogger(__name__).warning(dpi_warning)
         else:
             rendered = jinja_engine.render(template, form_data)
     except Exception as e:

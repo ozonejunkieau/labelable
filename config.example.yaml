@@ -114,3 +114,21 @@ printers:
   #     force: false
   #   healthcheck:
   #     interval: 60
+
+  # Zebra GK/GX-series printer behind an ESP32-P4 network bridge
+  # (zebra-bridge firmware). ZPL only: the device streams the job verbatim and
+  # decides completion by polling ~HS, so the printer must be in ZPL mode.
+  # - name: net-zebra
+  #   type: zpl
+  #   connection:
+  #     type: zebra_bridge
+  #     host: esp32-zebra-e0d1c6   # hostname or IP (DHCP - prefer the hostname)
+  #     port: 80
+  #     # Bearer token for POST /print. Falls back to the
+  #     # LABELABLE_ZEBRA_BRIDGE_TOKEN environment variable when unset.
+  #     token: "changeme"
+  #     # Seconds to wait for a job to finish. Keep it above the firmware's
+  #     # CONFIG_ZB_JOB_TIMEOUT_S (300 s by default).
+  #     completion_timeout_s: 330
+  #   healthcheck:
+  #     interval: 60

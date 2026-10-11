@@ -10,6 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from labelable.api.template_crud import TemplateCRUDError, create_template_on_disk, update_template_on_disk
 from labelable.models.job import PrintJob
 from labelable.models.template import EngineType, TemplateConfig
+from labelable.printers import dpi_mismatch_warning
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,8 @@ def create_mcp_server() -> MCPServer:
                     return json.dumps({"error": "Image engine not initialized"})
                 output_format = target_printer.output_format
                 rendered = image_engine.render(template, render_context, output_format=output_format)
+                if dpi_warning := dpi_mismatch_warning(target_printer, template):
+                    logger.warning(dpi_warning)
             else:
                 rendered = jinja_engine.render(template, render_context)
         except Exception as e:

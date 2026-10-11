@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections, and Brother P-Touch label printers via USB, remotely via the bridge daemon, or over the network via an ESP32-P4 ptouch-bridge device.
+Labelable is a label printing API and web UI designed for home use, primarily as a Home Assistant add-on. It supports Zebra ZPL and EPL2 thermal printers via TCP or serial connections, and Brother P-Touch label printers via USB, remotely via the bridge daemon, or over the network via an ESP32-P4 ptouch-bridge device. Zebra USB printers can also be reached over the network via an ESP32-P4 zebra-bridge device.
 
 ## Development Setup
 
@@ -44,7 +44,9 @@ src/labelable/
 │   ├── epl2.py         # Zebra EPL2 (TCP/serial/HA)
 │   ├── ptouch.py       # Brother P-Touch (USB via PyUSB)
 │   ├── bridge.py       # Bridge P-Touch (long-polling job relay)
+│   ├── http_bridge.py  # Shared HTTP plumbing for the ESP32-P4 bridge devices
 │   ├── ptouch_net.py   # Networked P-Touch (ESP32-P4 ptouch-bridge, HTTP)
+│   ├── zebra_net.py    # Networked Zebra ZPL (ESP32-P4 zebra-bridge, HTTP)
 │   └── ptouch_protocol.py # P-Touch PTCBP raster protocol
 ├── templates/          # Template engines
 │   ├── engine.py       # Abstract TemplateEngine
@@ -167,6 +169,18 @@ printers:
       token: "changeme"           # or LABELABLE_PTOUCH_BRIDGE_TOKEN env var
       # media_type: 3             # Fallback only; live status wins
       # force: false              # Skip tape width validation (unsafe)
+
+  # ESP32-P4 network bridge (zebra-bridge firmware), ZPL only.
+  # The device hosts a GK/GX-series printer over USB and streams the ZPL
+  # body of POST /print to it verbatim.
+  - name: net-zebra
+    type: zpl
+    connection:
+      type: zebra_bridge
+      host: esp32-zebra-e0d1c6    # hostname or IP
+      # port: 80
+      token: "changeme"           # or LABELABLE_ZEBRA_BRIDGE_TOKEN env var
+      # completion_timeout_s: 330 # Keep above the firmware's job timeout
 
 templates_dir: ./templates
 ```
@@ -573,7 +587,8 @@ framing, no compression and no commands (row count is `len(data) // 16`).
 
 **ESP32-P4 ptouch-bridge specifics:**
 - `GET /status` is unauthenticated; `POST /print` needs `Authorization: Bearer`.
-- Ready iff `usb_connected && state == "idle" && errors == []`.
+- Ready iff `usb_connected && state != "printing" && errors == []`. Not
+  `state == "idle"`: see "ESP32-P4 bridge devices" below.
 - Status shape varies: `media_width_mm` may be `null`, and `media_type` /
   `tape_color_id` are **absent entirely** (not null) before the first
   successful printer poll.
@@ -586,6 +601,46 @@ framing, no compression and no commands (row count is `len(data) // 16`).
   14-dot margin), so `ptouch_auto_cut` / `ptouch_chain_print` are ignored on
   this transport and a warning is logged when a template sets them.
   `ptouch_margin_mm` still applies - it is baked into the image during cropping.
+
+### ESP32-P4 bridge devices
+
+`PTouchNetPrinter` and `ZebraNetPrinter` both subclass `HTTPBridgePrinter`
+(`printers/http_bridge.py`), which owns the session, `GET /status`, the
+`POST /print` retry loop and completion polling. Subclasses supply the
+payload, the readiness rule, and how status maps onto `model_info`/`errors`.
+
+**`state == "error"` is not "offline".** Both firmwares set it when a job
+fails and keep it until the next job *starts*, so it describes the last job,
+not the printer. A readiness rule that requires `"idle"` wedges the queue
+after one failure: the printer reads offline, the queue re-queues every job
+instead of submitting it, and nothing ever starts the job that would clear
+the state. Both transports test for `state != "printing"` instead.
+
+### Zebra network bridge (`zebra_bridge`)
+
+`type: zpl` only (enforced by `PrinterConfig` validation), rendered as plain
+`zpl` - jinja and image templates work unchanged.
+
+- `POST /print` body is the raw ZPL with `Content-Type: application/zpl`,
+  sent byte for byte. The firmware filters nothing.
+- Ready iff `usb_connected && state != "printing" && media != null &&
+  errors == []`. `media == null` while connected means the printer isn't
+  answering `~HS`, usually because it is in EPL mode.
+- `409` (busy) and `503 printer not connected` are retried. `503 printer not
+  ready` (a fault such as `head_open` or `paused`) fails immediately, because
+  it needs a person at the printer.
+- Completion is decided by the device (`~HS` drain), so `completion_timeout_s`
+  (default 330 s) must exceed the firmware's `CONFIG_ZB_JOB_TIMEOUT_S` (300 s).
+  A failed job reports the device's `last_failure` (e.g. `fault: paper_out`);
+  the device has already cancelled it with `~JA`, so it will not resume.
+- Quantity: `^PQ` in the data is sent once. Otherwise the copies are joined
+  into a single job (the device accepts several formats per job) while they
+  fit in 1 MB, else one job per copy.
+- `printer.dpi` comes from `~HI`. `dpi_mismatch_warning()` logs a warning when
+  an image template's `dpi` doesn't match (a 203 dpi template prints at 68%
+  on a 300 dpi GX430t). Jinja templates are in dots and aren't checked.
+- Keep the firmware's own Worker queue poller disabled
+  (`CONFIG_ZB_WORKER_ENABLED`) when Labelable is the job source.
 
 ## CLI Tools
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `zebra_bridge` connection type: Zebra GK/GX-series printers hosted by an ESP32-P4 network bridge (`zebra-bridge` firmware) over plain HTTP. `type: zpl` only; jinja and image templates work unchanged
+- Fix P-Touch network bridge printers reading as offline forever after one failed job: the device reports `state: "error"` until the next job starts, and readiness required `"idle"`, so every later job was re-queued until it expired. A bridge is now ready whenever it is not printing and reports no errors
+- Log a warning when an image template's `dpi` doesn't match the resolution a printer reports (currently the Zebra bridge), since a 203 dpi template prints at 68% on a 300 dpi printer
+
 ## 0.5.0
 
 - Add `ptouch_bridge` connection type: Brother P-Touch printers hosted by an ESP32-P4 network bridge (`ptouch-bridge` firmware) over plain HTTP

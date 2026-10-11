@@ -17,6 +17,7 @@ import aiohttp
 from labelable.config import AppConfig
 from labelable.models.job import PrintJob
 from labelable.models.template import EngineType
+from labelable.printers import dpi_mismatch_warning
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,8 @@ async def _process_message(
                 return False
             output_format = printer.output_format  # "zpl", "epl2", "ptouch", "ptouch_raw"
             rendered = image_engine.render(template, context, output_format=output_format)
+            if dpi_warning := dpi_mismatch_warning(printer, template):
+                logger.warning(dpi_warning)
         else:
             rendered = jinja_engine.render(template, context)
     except Exception:

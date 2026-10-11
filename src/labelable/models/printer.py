@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PrinterType(StrEnum):
@@ -23,6 +23,7 @@ class ConnectionType(StrEnum):
     HA = "ha"
     BRIDGE = "bridge"
     PTOUCH_BRIDGE = "ptouch_bridge"
+    ZEBRA_BRIDGE = "zebra_bridge"
 
 
 class TCPConnection(BaseModel):
@@ -100,8 +101,37 @@ class PTouchBridgeConnection(BaseModel):
     force: bool = False
 
 
+class ZebraBridgeConnection(BaseModel):
+    """ESP32-P4 Zebra network bridge (zebra-bridge firmware).
+
+    The device hosts a Zebra GK/GX-series printer over USB and exposes an
+    HTTP API:
+      GET  /status  (unauthenticated)
+      POST /print   (bearer token, raw ZPL body)
+
+    ZPL is streamed to the printer verbatim; the device decides completion by
+    polling ~HS, so only ``type: zpl`` printers can use this connection.
+    """
+
+    type: Literal["zebra_bridge"] = "zebra_bridge"
+    host: str
+    port: int = 80
+    # Optional in config; falls back to LABELABLE_ZEBRA_BRIDGE_TOKEN
+    token: str | None = None
+    # How long to wait for a job to finish once admitted. Must exceed the
+    # firmware's own CONFIG_ZB_JOB_TIMEOUT_S (300 s by default), or a long
+    # ^PQ batch is reported failed here while it is still printing.
+    completion_timeout_s: float = 330.0
+
+
 ConnectionConfig = Annotated[
-    TCPConnection | SerialConnection | USBConnection | HAConnection | BridgeConnection | PTouchBridgeConnection,
+    TCPConnection
+    | SerialConnection
+    | USBConnection
+    | HAConnection
+    | BridgeConnection
+    | PTouchBridgeConnection
+    | ZebraBridgeConnection,
     Field(discriminator="type"),
 ]
 
@@ -121,3 +151,9 @@ class PrinterConfig(BaseModel):
     connection: ConnectionConfig
     enabled: bool = True
     healthcheck: HealthcheckConfig = HealthcheckConfig()
+
+    @model_validator(mode="after")
+    def _check_connection_matches_type(self) -> "PrinterConfig":
+        if isinstance(self.connection, ZebraBridgeConnection) and self.type != PrinterType.ZPL:
+            raise ValueError(f"zebra_bridge connection only supports type 'zpl', not '{self.type}'")
+        return self

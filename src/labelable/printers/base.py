@@ -72,6 +72,15 @@ class BasePrinter(ABC):
         return self._model_info
 
     @property
+    def dpi(self) -> int | None:
+        """Resolution the printer itself reports, or None if unknown.
+
+        Only transports that can ask the printer override this (the
+        zebra_bridge device reports it from ~HI).
+        """
+        return None
+
+    @property
     def output_format(self) -> str:
         """Template engine output format this transport expects.
 

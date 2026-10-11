@@ -161,7 +161,7 @@ class TestConnect:
     async def test_connect_creates_session_and_polls_status(self):
         session = FakeSession(get_responses=[_make_response(200, _status())])
         printer = PTouchNetPrinter(_make_config())
-        with patch("labelable.printers.ptouch_net.aiohttp.ClientSession", return_value=session):
+        with patch("labelable.printers.http_bridge.aiohttp.ClientSession", return_value=session):
             await printer.connect()
         assert printer.is_connected
         assert session.get_calls == ["http://esp32-ptouch:80/status"]
@@ -170,7 +170,7 @@ class TestConnect:
     async def test_connect_raises_when_device_unreachable(self):
         session = FakeSession(get_responses=[_make_response(500, text="boom")])
         printer = PTouchNetPrinter(_make_config())
-        with patch("labelable.printers.ptouch_net.aiohttp.ClientSession", return_value=session):
+        with patch("labelable.printers.http_bridge.aiohttp.ClientSession", return_value=session):
             with pytest.raises(ConnectionError, match="did not respond"):
                 await printer.connect()
         assert not printer.is_connected
@@ -204,6 +204,14 @@ class TestStatus:
     async def test_offline_when_usb_disconnected(self):
         printer = _printer(FakeSession(get_responses=[_make_response(200, _status(usb_connected=False))]))
         assert await printer.is_online() is False
+
+    @pytest.mark.asyncio
+    async def test_error_state_is_still_online(self):
+        """state=error describes the last job and persists until the next one
+        starts; treating it as offline re-queued every job forever."""
+        status = _status(state="error", jobs_failed=1)
+        printer = _printer(FakeSession(get_responses=[_make_response(200, status)]))
+        assert await printer.is_online() is True
 
     @pytest.mark.asyncio
     async def test_offline_while_printing(self):
@@ -336,7 +344,7 @@ class TestPrintPayload:
             post_responses=[_make_response(202, {"result": "accepted"})],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             await printer.print_raw(ROWS)
 
         url, payload, headers = session.post_calls[0]
@@ -359,7 +367,7 @@ class TestPrintPayload:
             post_responses=[_make_response(202)],
         )
         printer = _printer(session, media_type=3, force=True)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             await printer.print_raw(ROWS)
 
         _url, payload, _headers = session.post_calls[0]
@@ -379,7 +387,7 @@ class TestPrintPayload:
             post_responses=[_make_response(202)],
         )
         printer = _printer(session, media_type=17)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             await printer.print_raw(ROWS)
         assert session.post_calls[0][1]["media_type"] == 17
 
@@ -401,7 +409,7 @@ class TestPrintErrorMapping:
             post_responses=[_make_response(code, {"error": reason})],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(PrinterError, match=match):
                 await printer.print_raw(ROWS)
         # Exactly one attempt - no retry
@@ -414,7 +422,7 @@ class TestPrintErrorMapping:
             post_responses=[_make_response(422, {"error": "declared media_width_mm does not match loaded tape"})],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(PrinterError, match="Media width mismatch"):
                 await printer.print_raw(ROWS)
         assert len(session.post_calls) == 1
@@ -427,7 +435,7 @@ class TestPrintErrorMapping:
             post_responses=[_make_response(code, {"error": "printer busy"}) for _ in range(RETRY_ATTEMPTS)],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(PrinterError, match=f"unavailable after {RETRY_ATTEMPTS} attempts"):
                 await printer.print_raw(ROWS)
         assert len(session.post_calls) == RETRY_ATTEMPTS
@@ -446,7 +454,7 @@ class TestPrintErrorMapping:
             ],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             await printer.print_raw(ROWS)
         assert len(session.post_calls) == 3
 
@@ -459,7 +467,7 @@ class TestPrintErrorMapping:
             post_responses=[resp],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(PrinterError, match="plain text failure"):
                 await printer.print_raw(ROWS)
 
@@ -478,7 +486,7 @@ class TestCompletionPolling:
             post_responses=[_make_response(202)],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             await printer.print_raw(ROWS)
         # 1 pre-submit + 3 completion polls
         assert len(session.get_calls) == 4
@@ -493,7 +501,7 @@ class TestCompletionPolling:
             post_responses=[_make_response(202)],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(PrinterError, match="failed job: cutter_jam"):
                 await printer.print_raw(ROWS)
 
@@ -507,7 +515,7 @@ class TestCompletionPolling:
             post_responses=[_make_response(202)],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(PrinterError, match="reported errors: no_media"):
                 await printer.print_raw(ROWS)
 
@@ -524,8 +532,8 @@ class TestCompletionPolling:
         loop = MagicMock()
         loop.time = lambda: float(next(ticks))
         with (
-            patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()),
-            patch("labelable.printers.ptouch_net.asyncio.get_event_loop", return_value=loop),
+            patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()),
+            patch("labelable.printers.http_bridge.asyncio.get_event_loop", return_value=loop),
         ):
             with pytest.raises(PrinterError, match="did not complete the job"):
                 await printer.print_raw(ROWS)
@@ -543,6 +551,6 @@ class TestCompletionPolling:
             post_responses=[_make_response(202), _make_response(202)],
         )
         printer = _printer(session)
-        with patch("labelable.printers.ptouch_net.asyncio.sleep", new=AsyncMock()):
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             await printer.print_with_quantity(ROWS, 2)
         assert len(session.post_calls) == 2
