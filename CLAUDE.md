@@ -627,6 +627,11 @@ framing, no compression and no commands (row count is `len(data) // 16`).
 - Single job, no queue. `409` (busy) and `503` (not connected) are retried with
   bounded backoff; `400`/`401`/`413`/`500` fail immediately; `422` is a tape
   width mismatch.
+- Tape width: the transport declares the *loaded* width, so the device's own
+  `422` check never fires. Instead `print_raw` refuses rows with ink outside
+  the loaded tape's printable pin window (`ink_outside_tape`), i.e. a template
+  made for wider tape, which would otherwise print clipped and report success.
+  A narrower template fits and is allowed. `force: true` skips the check.
 - Print options are compiled into the firmware (auto-cut on, chain-print off,
   14-dot margin), so `ptouch_auto_cut` / `ptouch_chain_print` are ignored on
   this transport and a warning is logged when a template sets them.

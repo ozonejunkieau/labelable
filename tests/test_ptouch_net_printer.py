@@ -301,7 +301,9 @@ class TestCheckMediaWidth:
 # print_raw
 # ---------------------------------------------------------------------------
 
-ROWS = b"\x00" * 16 + b"\xff" * 16  # two 16-byte rows
+# Two 16-byte rows. The inked one (pins 40-87) sits inside the 9 mm tape's
+# printable window (pins 39-88), as a real 9 mm render would.
+ROWS = b"\x00" * 16 + b"\x00" * 5 + b"\xff" * 6 + b"\x00" * 5
 
 
 class TestPrintGuards:
@@ -554,3 +556,47 @@ class TestCompletionPolling:
         with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
             await printer.print_with_quantity(ROWS, 2)
         assert len(session.post_calls) == 2
+
+
+class TestTapeWidthCheck:
+    """A template wider than the loaded tape must not print clipped."""
+
+    @staticmethod
+    def _rows_for(template_tape_mm: int) -> bytes:
+        from labelable.templates.converters.ptouch import TAPE_SPECS
+
+        printable, left, _right = TAPE_SPECS[template_tape_mm]
+        # Ink across the template's whole printable window
+        bits = ((1 << printable) - 1) << (128 - left - printable)
+        return bits.to_bytes(16, "big") * 4
+
+    @pytest.mark.parametrize(
+        ("template_mm", "loaded_mm", "clipped"),
+        [(12, 9, True), (24, 12, True), (9, 9, False), (9, 12, False), (6, 24, False)],
+    )
+    def test_ink_outside_tape(self, template_mm, loaded_mm, clipped):
+        from labelable.printers.ptouch_net import ink_outside_tape
+
+        assert ink_outside_tape(self._rows_for(template_mm), loaded_mm) is clipped
+
+    @pytest.mark.asyncio
+    async def test_wider_template_refused_before_sending(self):
+        session = FakeSession(get_responses=[_make_response(200, _status(media_width_mm=9))])
+        printer = _printer(session)
+        with pytest.raises(PrinterError, match="wider than the loaded 9mm tape"):
+            await printer.print_raw(self._rows_for(12))
+        assert session.post_calls == []
+
+    @pytest.mark.asyncio
+    async def test_force_skips_the_check(self):
+        session = FakeSession(
+            get_responses=[
+                _make_response(200, _status(media_width_mm=9)),
+                _make_response(200, _status(jobs_printed=1)),
+            ],
+            post_responses=[_make_response(202)],
+        )
+        printer = _printer(session, force=True)
+        with patch("labelable.printers.http_bridge.asyncio.sleep", new=AsyncMock()):
+            await printer.print_raw(self._rows_for(12))
+        assert len(session.post_calls) == 1

@@ -20,7 +20,7 @@ from typing import Any
 from labelable.models.printer import PrinterConfig, PTouchBridgeConnection
 from labelable.printers.base import PrinterError
 from labelable.printers.http_bridge import RETRY_ATTEMPTS, HTTPBridgePrinter
-from labelable.templates.converters.ptouch import BYTES_PER_LINE
+from labelable.templates.converters.ptouch import BYTES_PER_LINE, TAPE_SPECS
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,27 @@ TAPE_COLOUR_NAMES: dict[int, str] = {
     0x01: "White",
     0x08: "Black",
 }
+
+
+def ink_outside_tape(data: bytes, tape_width_mm: int) -> bool:
+    """Whether any raster row sets a pin outside the tape's printable window.
+
+    Rows are rendered for the template's tape width, but the device only
+    prints the loaded tape's window and silently drops the rest. A template
+    wider than the loaded tape therefore printed clipped and was reported as
+    a success. (A narrower template fits inside the window and is fine.)
+    The margins are symmetric, so this doesn't depend on the bit order.
+    """
+    spec = TAPE_SPECS.get(tape_width_mm)
+    if spec is None:
+        return False
+    _, left, right = spec
+    pins = BYTES_PER_LINE * 8
+    inked = 0
+    for offset in range(0, len(data), BYTES_PER_LINE):
+        inked |= int.from_bytes(data[offset : offset + BYTES_PER_LINE], "big")
+    window = ((1 << (pins - left - right)) - 1) << right
+    return bool(inked & ~window & ((1 << pins) - 1))
 
 
 class PTouchNetPrinter(HTTPBridgePrinter):
@@ -193,6 +214,11 @@ class PTouchNetPrinter(HTTPBridgePrinter):
         width = self._status_width()
         if width is None:
             raise PrinterError("Bridge has not read the loaded tape; cannot declare media_width_mm")
+        if not self._conn.force and ink_outside_tape(data, width):
+            raise PrinterError(
+                f"Label is wider than the loaded {width}mm tape and would print clipped; "
+                f"load the tape the template was made for (or set force: true)"
+            )
 
         payload = {
             "media_width_mm": width,
