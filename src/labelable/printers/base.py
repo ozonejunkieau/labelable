@@ -132,6 +132,14 @@ class BasePrinter(ABC):
         return None
 
     @property
+    def errors(self) -> list[str]:
+        """Faults the printer reports (paper out, head open...). Empty if unknown.
+
+        Only transports that can read the printer's status override this.
+        """
+        return []
+
+    @property
     def output_format(self) -> str:
         """Template engine output format this transport expects.
 

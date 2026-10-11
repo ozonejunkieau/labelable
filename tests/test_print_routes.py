@@ -245,3 +245,17 @@ class TestPrintQuantity:
         )
         job = queue.get_job(resp.json()["job_id"])
         assert job is not None and job.quantity == 3
+
+
+class TestPrinterStatusFields:
+    def test_list_includes_model_and_errors(self, client, queue, jinja_engine):
+        from labelable.models.printer import PrinterType
+
+        printer = _make_mock_printer()
+        printer.config.type = PrinterType.ZPL
+        printer.model_info = "GX420t-200dpi V56.17.5Z (203 dpi)"
+        printer.errors = ["head_open", "paused"]
+        api_routes.set_app_state({"test-printer": printer}, {}, queue, jinja_engine)
+        body = client.get("/api/v1/printers").json()
+        assert body[0]["model"] == "GX420t-200dpi V56.17.5Z (203 dpi)"
+        assert body[0]["errors"] == ["head_open", "paused"]

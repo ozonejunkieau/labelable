@@ -109,6 +109,9 @@ class PrinterStatus(BaseModel):
     online: bool
     queue_size: int
     last_checked: datetime | None = None
+    model: str | None = None
+    # Faults the printer reports, e.g. ["head_open", "paused"]; empty if none or unknown
+    errors: list[str] = []
 
 
 class TemplateInfo(BaseModel):
@@ -166,6 +169,8 @@ async def list_printers() -> list[PrinterStatus]:
                 online=online,
                 queue_size=queue_size,
                 last_checked=printer.last_checked,
+                model=printer.model_info,
+                errors=_printer_errors(printer),
             )
         )
     return result
@@ -190,7 +195,14 @@ async def get_printer(name: str) -> PrinterStatus:
         online=online,
         queue_size=queue_size,
         last_checked=printer.last_checked,
+        model=printer.model_info,
+        errors=_printer_errors(printer),
     )
+
+
+def _printer_errors(printer: Any) -> list[str]:
+    errors = getattr(printer, "errors", None)
+    return [str(e) for e in errors] if isinstance(errors, list) else []
 
 
 @router.get("/templates", response_model=list[TemplateInfo])

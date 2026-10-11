@@ -70,12 +70,17 @@ def create_mcp_server() -> MCPServer:
         for name, printer in printers.items():
             online = await printer.online_status()
             queue_size = queue.get_queue_size(name) if queue else 0
+            errors = getattr(printer, "errors", None)
+            last_checked = printer.last_checked
             result.append(
                 {
                     "name": name,
                     "type": printer.config.type.value,
                     "online": online,
                     "queue_size": queue_size,
+                    "model": printer.model_info if isinstance(printer.model_info, str) else None,
+                    "errors": [str(e) for e in errors] if isinstance(errors, list) else [],
+                    "last_checked": last_checked.isoformat() if hasattr(last_checked, "isoformat") else None,
                 }
             )
         return json.dumps(result)
