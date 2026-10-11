@@ -91,21 +91,25 @@ class Settings(BaseSettings):
     ssl_certfile: Path | None = None
     ssl_keyfile: Path | None = None
     ssl_port: int = 7980  # Separate port for HTTPS when running dual HTTP+HTTPS
+    # Overrides templates_dir in config.yaml when set. The HA add-on sets it
+    # from its templates_dir option, which otherwise had no effect.
+    templates_dir: Path | None = None
 
 
 def load_config(config_path: Path) -> AppConfig:
     """Load application configuration from YAML file."""
-    if not config_path.exists():
-        return AppConfig()
-
-    with open(config_path) as f:
-        data = yaml.safe_load(f) or {}
+    data: dict = {}
+    if config_path.exists():
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
 
     # Handle None values for list/dict fields (YAML returns None for empty keys)
     if data.get("printers") is None:
         data["printers"] = []
     if data.get("user_mapping") is None:
         data["user_mapping"] = {}
+    if settings.templates_dir is not None:
+        data["templates_dir"] = settings.templates_dir
 
     return AppConfig.model_validate(data)
 

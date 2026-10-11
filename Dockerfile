@@ -3,6 +3,13 @@ FROM python:3.13-slim
 # Set working directory
 WORKDIR /app
 
+# DejaVu is the image engine's default font and libdmtx backs DataMatrix
+# elements; without them default-font templates were skipped as "missing
+# fonts" and DataMatrix codes failed. (Debian trixie names: libdmtx0t64.)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core libdmtx0t64 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv
 RUN pip install --no-cache-dir uv
 
@@ -13,7 +20,7 @@ COPY pyproject.toml uv.lock* README.md ./
 COPY src/ ./src/
 
 # Install dependencies (without dev dependencies)
-RUN uv sync --no-dev --frozen
+RUN uv sync --no-dev --group mcp --frozen
 
 # Copy example files (user mounts their own config.yaml and templates/)
 COPY config.example.yaml ./config.example.yaml

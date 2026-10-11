@@ -12,6 +12,8 @@ mkdir -p "$TEMPLATES_DIR"
 export LABELABLE_CONFIG_FILE="$CONFIG_FILE"
 export LABELABLE_HOST="0.0.0.0"
 export LABELABLE_PORT="7979"
+# The add-on option wins over templates_dir in config.yaml
+export LABELABLE_TEMPLATES_DIR="$TEMPLATES_DIR"
 
 # Create default config if it doesn't exist
 if [ ! -f "$CONFIG_FILE" ]; then

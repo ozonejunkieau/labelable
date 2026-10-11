@@ -245,3 +245,29 @@ class TestSettings:
         s = Settings(config_file="config.yaml")
         assert s.ssl_certfile == Path("/ssl/fullchain.pem")
         assert s.ssl_keyfile == Path("/ssl/privkey.pem")
+
+
+class TestTemplatesDirOverride:
+    """LABELABLE_TEMPLATES_DIR (the add-on's templates_dir option) wins over config.yaml."""
+
+    def test_env_overrides_config(self, tmp_path, monkeypatch):
+        from labelable import config as config_module
+
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("templates_dir: /from/config\n")
+        monkeypatch.setattr(config_module.settings, "templates_dir", Path("/from/addon"))
+        assert config_module.load_config(cfg).templates_dir == Path("/from/addon")
+
+    def test_override_applies_without_a_config_file(self, tmp_path, monkeypatch):
+        from labelable import config as config_module
+
+        monkeypatch.setattr(config_module.settings, "templates_dir", Path("/from/addon"))
+        assert config_module.load_config(tmp_path / "missing.yaml").templates_dir == Path("/from/addon")
+
+    def test_config_used_when_unset(self, tmp_path, monkeypatch):
+        from labelable import config as config_module
+
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("templates_dir: /from/config\n")
+        monkeypatch.setattr(config_module.settings, "templates_dir", None)
+        assert config_module.load_config(cfg).templates_dir == Path("/from/config")

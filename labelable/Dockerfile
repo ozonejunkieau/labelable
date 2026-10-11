@@ -21,9 +21,11 @@ COPY pyproject.toml uv.lock README.md ./
 # Copy application source
 COPY src/ ./src/
 
-# Install dependencies (no dev deps, frozen lockfile)
+# Install dependencies (no dev deps, frozen lockfile). The mcp group is
+# included so mcp_enabled works in the add-on; without it the option only
+# logged a warning.
 # Use unsafe-best-match to allow fonttools from PyPI when HA wheels are outdated
-RUN uv sync --no-dev --frozen --index-strategy unsafe-best-match
+RUN uv sync --no-dev --group mcp --frozen --index-strategy unsafe-best-match
 
 # Copy example template
 COPY templates/_example.yaml ./templates/_example.yaml
