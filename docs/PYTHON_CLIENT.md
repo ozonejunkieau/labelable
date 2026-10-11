@@ -30,9 +30,12 @@ GET /api/v1/printers
 [
     {
         "name": "warehouse-zpl",
-        "type": "zpl",  # or "epl2"
+        "type": "zpl",  # or "epl2", "ptouch"
         "online": True,
-        "queue_size": 0
+        "queue_size": 0,
+        "last_checked": "2026-10-12T09:30:00",
+        "model": "GX420t-200dpi V56.17.5Z (203 dpi)",  # None until known
+        "errors": []  # faults the printer reports, e.g. ["head_open", "paused"]
     }
 ]
 ```
@@ -49,7 +52,10 @@ GET /api/v1/printers/{name}
     "name": "warehouse-zpl",
     "type": "zpl",
     "online": True,
-    "queue_size": 0
+    "queue_size": 0,
+    "last_checked": "2026-10-12T09:30:00",
+    "model": "GX420t-200dpi V56.17.5Z (203 dpi)",
+    "errors": []
 }
 ```
 

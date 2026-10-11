@@ -10,6 +10,22 @@
 - Fix web UI form handling: a checkbox defaulting to on could not be switched off, a blank number field failed to render, and a blank quantity caused a server error. Quantity is now limited to 1-100, and a printer the template doesn't support is rejected
 - Add a job page: after Print, the web UI shows the job's status, any error and the values printed. Previously the confirmation was invisible after a preview, inviting a second click
 - ESP32 bridge printers: a busy printer no longer shows as offline, a dropped connection is retried without risking a duplicate print, large jobs are no longer cut off by the request timeout, and a fault appearing after a job finished no longer fails that job
+- P-Touch network bridge: refuse a label made for wider tape than is loaded, which used to print clipped and report success (`force: true` skips the check)
+- Quantity is applied the same way everywhere: a template's fixed quantity wins over REST, MCP and Cloudflare requests too, requests must ask for 1-100 copies, and Cloudflare messages can set `quantity`
+- Cloudflare queue: messages for an offline printer are retried after `retry_delay_seconds` (default 60) instead of immediately, which spun the consumer and exhausted Cloudflare's retries in seconds; a message naming a printer that can't print its template is discarded; and the consumer survives unexpected errors instead of stopping silently
+- Print queue: jobs keep their order through a printer outage, and finished jobs are kept for an hour (up to 1000) instead of forever
+- Printer status: status no longer reads "Unknown" for half of every minute; the printers page shows each printer's connection and why it is offline, and its Refresh button works; the print form shows every compatible printer's status; REST and MCP report each printer's model and faults
+- Status checks from the web UI, REST, MCP and the Cloudflare queue use the cached status instead of probing the printer on every request, which collided with the worker on TCP printers and blocked on offline ones
+- Serial printers: a status check returns as soon as the reply is complete instead of always waiting 5 s
+- A failed status check now closes the printer connection instead of leaking it
+- EPL2: image labels no longer get a black line down the right edge, and label text like "Part P20" is no longer mistaken for a quantity command
+- Templates with `font_paths` no longer make every later template lose its fonts
+- Templates over the API: an update can't rename a template, writes back to the file it came from, and create refuses to overwrite a file that failed to load; image templates are checked for missing fonts as at startup
+- Config: printer type/connection combinations that can't work, duplicate printer names and a healthcheck interval below 1 s are rejected at load
+- Home Assistant integration: an ambiguous printer name is refused instead of matching the first printer containing it
+- Add-on: MCP now works (its dependencies are installed), the `templates_dir` option takes effect, and the standalone Docker image includes the default font and DataMatrix library
+- P-Touch bridge daemon: reconnects after the printer is power-cycled or replugged, supports `--api-key`, and a late job result is no longer credited to the next job
+- Circular templates show their diameter instead of "0.0 x 0.0 mm"
 
 ## 0.5.1
 
