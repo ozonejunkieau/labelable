@@ -35,6 +35,39 @@ def _setup_macos_library_path() -> None:
             return
 
 
+async def serve_dual(primary_server: uvicorn.Server, secondary_server: uvicorn.Server) -> None:
+    """Serve one app on two listeners, running its lifespan exactly once.
+
+    Both configs import the same ``labelable.app:app``, so they share the
+    module-level state the lifespan builds (printers, queue workers, Cloudflare
+    consumer). Letting each server run the lifespan would build all of that
+    twice: two workers per printer contending for one TCP or USB connection,
+    and a second Cloudflare consumer bound to a stale template set. So only
+    ``primary`` runs it, and ``secondary`` starts once ``primary`` is up.
+
+    When either server stops, the other is told to stop too.
+    """
+    import asyncio
+
+    secondary_server.config.lifespan = "off"
+
+    primary_task = asyncio.create_task(primary_server.serve())
+    while not primary_server.started:
+        if primary_task.done():
+            # Startup failed (lifespan error, port in use); nothing to pair with
+            await primary_task
+            return
+        await asyncio.sleep(0.05)
+
+    secondary_task = asyncio.create_task(secondary_server.serve())
+    done, pending = await asyncio.wait({primary_task, secondary_task}, return_when=asyncio.FIRST_COMPLETED)
+    primary_server.should_exit = True
+    secondary_server.should_exit = True
+    await asyncio.gather(*pending, return_exceptions=True)
+    for task in done:
+        task.result()
+
+
 def main() -> int:
     """Run the Labelable server."""
     # Set up macOS library path for pylibdmtx
@@ -56,31 +89,21 @@ def main() -> int:
         # Dual mode: HTTP on main port + HTTPS on ssl_port (for HA add-on)
         import asyncio
 
-        async def _run_dual() -> None:
-            http_config = uvicorn.Config(
-                "labelable.app:app",
-                host=settings.host,
-                port=settings.port,
-            )
-            https_config = uvicorn.Config(
-                "labelable.app:app",
-                host=settings.host,
-                port=settings.ssl_port,
-                ssl_certfile=str(settings.ssl_certfile),
-                ssl_keyfile=str(settings.ssl_keyfile),
-            )
-            http_server = uvicorn.Server(http_config)
-            https_server = uvicorn.Server(https_config)
-
-            log.info(f"HTTP on port {settings.port} (ingress)")
-            log.info(f"HTTPS on port {settings.ssl_port} (external)")
-
-            await asyncio.gather(
-                http_server.serve(),
-                https_server.serve(),
-            )
-
-        asyncio.run(_run_dual())
+        http_config = uvicorn.Config(
+            "labelable.app:app",
+            host=settings.host,
+            port=settings.port,
+        )
+        https_config = uvicorn.Config(
+            "labelable.app:app",
+            host=settings.host,
+            port=settings.ssl_port,
+            ssl_certfile=str(settings.ssl_certfile),
+            ssl_keyfile=str(settings.ssl_keyfile),
+        )
+        log.info(f"HTTP on port {settings.port} (ingress)")
+        log.info(f"HTTPS on port {settings.ssl_port} (external)")
+        asyncio.run(serve_dual(uvicorn.Server(http_config), uvicorn.Server(https_config)))
     else:
         # Single server mode
         uvicorn_kwargs: dict = {
