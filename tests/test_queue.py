@@ -292,3 +292,78 @@ class TestPrintQueue:
         assert mock_printer._printed_data == [b"job-0", b"job-1", b"job-2"]
 
         await queue.stop_worker(mock_printer.name)
+
+
+def _job(printer: str, content: bytes, created: datetime | None = None) -> PrintJob:
+    return PrintJob(
+        template_name="t",
+        printer_name=printer,
+        data={},
+        rendered_content=content,
+        created_at=created or datetime.now(),
+    )
+
+
+class TestQueueOrderAndHistory:
+    async def test_jobs_keep_order_across_an_outage(self, monkeypatch):
+        """A job held for an offline printer must not be overtaken."""
+        monkeypatch.setattr("labelable.queue.OFFLINE_RETRY_SECONDS", 0.01)
+        queue = PrintQueue(timeout_seconds=60)
+        printer = MockPrinter("p", online=False)
+        for n in range(3):
+            await queue.submit(_job("p", f"job{n}".encode()))
+        await queue.start_worker(printer)
+        await asyncio.sleep(0.1)  # several offline polls
+        assert printer._printed_data == []
+
+        printer._online = True
+        await asyncio.sleep(0.2)
+        await queue.stop_worker("p")
+        assert printer._printed_data == [b"job0", b"job1", b"job2"]
+
+    async def test_job_expires_while_held(self, monkeypatch):
+        monkeypatch.setattr("labelable.queue.OFFLINE_RETRY_SECONDS", 0.01)
+        queue = PrintQueue(timeout_seconds=1)
+        printer = MockPrinter("p", online=False)
+        job = _job("p", b"x", created=datetime.now() - timedelta(seconds=0.95))
+        await queue.submit(job)
+        await queue.start_worker(printer)
+        await asyncio.sleep(0.3)
+        await queue.stop_worker("p")
+        assert job.status == JobStatus.EXPIRED
+
+    async def test_finished_job_drops_rendered_bytes(self):
+        queue = PrintQueue(timeout_seconds=60)
+        printer = MockPrinter("p")
+        job = _job("p", b"^XA^XZ")
+        await queue.submit(job)
+        await queue.start_worker(printer)
+        await asyncio.sleep(0.1)
+        await queue.stop_worker("p")
+        assert job.status == JobStatus.COMPLETED
+        assert job.rendered_content is None
+        assert queue.get_job(str(job.id)) is job  # still queryable
+
+    async def test_old_finished_jobs_are_pruned(self):
+        queue = PrintQueue()
+        old = _job("p", b"", created=datetime.now() - timedelta(hours=2))
+        old.status = JobStatus.COMPLETED
+        pending_old = _job("p", b"", created=datetime.now() - timedelta(hours=2))
+        queue._jobs[str(old.id)] = old
+        queue._jobs[str(pending_old.id)] = pending_old
+        await queue.submit(_job("p", b"new"))
+        assert queue.get_job(str(old.id)) is None
+        assert queue.get_job(str(pending_old.id)) is pending_old  # unfinished jobs are kept
+
+    async def test_history_is_capped(self, monkeypatch):
+        monkeypatch.setattr("labelable.queue.MAX_JOB_HISTORY", 3)
+        queue = PrintQueue()
+        jobs = []
+        for n in range(5):
+            job = _job("p", b"", created=datetime.now() - timedelta(minutes=10 - n))
+            job.status = JobStatus.COMPLETED
+            queue._jobs[str(job.id)] = job
+            jobs.append(job)
+        await queue.submit(_job("p", b"new"))
+        kept = [j for j in jobs if queue.get_job(str(j.id))]
+        assert kept == jobs[-2:]  # oldest dropped, room left for the new job

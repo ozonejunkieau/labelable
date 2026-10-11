@@ -4,11 +4,23 @@ import asyncio
 import logging
 from collections import defaultdict
 from collections.abc import Callable
+from datetime import datetime
 
 from labelable.models.job import JobStatus, PrintJob
 from labelable.printers.base import BasePrinter
 
 logger = logging.getLogger(__name__)
+
+# Finished jobs stay queryable (GET /api/v1/jobs/{id}, the UI job page) for
+# this long, and at most this many are kept. Without a limit every job,
+# including its rendered bytes, was kept for the life of the process.
+JOB_HISTORY_SECONDS = 3600
+MAX_JOB_HISTORY = 1000
+
+# How often a worker re-checks an offline printer while holding a job
+OFFLINE_RETRY_SECONDS = 5.0
+
+_FINISHED = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.EXPIRED)
 
 
 class PrintQueue:
@@ -27,9 +39,23 @@ class PrintQueue:
         Args:
             job: The print job to queue.
         """
+        self._prune_history()
         self._jobs[str(job.id)] = job
         await self._queues[job.printer_name].put(job)
         logger.info(f"Job {job.id} queued for printer {job.printer_name}")
+
+    def _prune_history(self) -> None:
+        """Forget finished jobs past the retention window or over the cap."""
+        now = datetime.now()
+        finished = [(job_id, job) for job_id, job in self._jobs.items() if job.status in _FINISHED]
+        expired = [job_id for job_id, job in finished if (now - job.created_at).total_seconds() > JOB_HISTORY_SECONDS]
+        for job_id in expired:
+            del self._jobs[job_id]
+        overflow = len(self._jobs) + 1 - MAX_JOB_HISTORY  # leave room for the job being added
+        if overflow > 0:
+            oldest = sorted((item for item in finished if item[0] in self._jobs), key=lambda item: item[1].created_at)
+            for job_id, _job in oldest[:overflow]:
+                del self._jobs[job_id]
 
     def get_job(self, job_id: str) -> PrintJob | None:
         """Get a job by ID."""
@@ -77,6 +103,22 @@ class PrintQueue:
         for printer_name in list(self._tasks.keys()):
             await self.stop_worker(printer_name)
 
+    @staticmethod
+    def _finish(job: PrintJob, status: JobStatus) -> None:
+        """Mark a job finished and drop its rendered bytes, which are no
+        longer needed but were kept for the life of the process."""
+        job.status = status
+        job.rendered_content = None
+
+    @staticmethod
+    async def _check_online(printer: BasePrinter) -> bool:
+        """is_online, treating an error as offline rather than failing the job."""
+        try:
+            return await printer.is_online()
+        except Exception as e:
+            logger.warning(f"Printer {printer.name}: status check failed - {e}")
+            return False
+
     async def _worker_loop(
         self,
         printer: BasePrinter,
@@ -108,11 +150,30 @@ class PrintQueue:
 
                 # Check if job has expired
                 if job.is_expired(self.timeout_seconds):
-                    job.status = JobStatus.EXPIRED
+                    self._finish(job, JobStatus.EXPIRED)
                     logger.info(f"Job {job.id} expired")
                     if on_status_change:
                         on_status_change(job)
                     continue
+
+                # Wait for the printer, holding this job at the head of the line.
+                # Re-queueing it at the back instead let later jobs overtake it.
+                # The cache is used when fresh to avoid a healthcheck on the same
+                # socket right before print data (risks interleaving).
+                if not printer.get_cached_online_status():
+                    expired = False
+                    while not await self._check_online(printer):
+                        if job.is_expired(self.timeout_seconds):
+                            expired = True
+                            break
+                        logger.debug(f"Printer {printer.name} offline, holding job {job.id}")
+                        await asyncio.sleep(OFFLINE_RETRY_SECONDS)
+                    if expired:
+                        self._finish(job, JobStatus.EXPIRED)
+                        logger.info(f"Job {job.id} expired waiting for {printer.name}")
+                        if on_status_change:
+                            on_status_change(job)
+                        continue
 
                 # Try to print
                 job.status = JobStatus.PRINTING
@@ -120,18 +181,6 @@ class PrintQueue:
                     on_status_change(job)
 
                 try:
-                    # Check printer is online — use cache if fresh to avoid
-                    # sending a healthcheck command on the same socket right
-                    # before print data (risks interleaving)
-                    cached = printer.get_cached_online_status()
-                    if cached is None or not cached:
-                        if not await printer.is_online():
-                            job.status = JobStatus.PENDING
-                            await queue.put(job)
-                            logger.debug(f"Printer {printer.name} offline, job {job.id} re-queued")
-                            await asyncio.sleep(5.0)
-                            continue
-
                     # Ensure connection
                     if not printer.is_connected:
                         await printer.connect()
@@ -146,12 +195,12 @@ class PrintQueue:
                     finally:
                         printer._printing = False
 
-                    job.status = JobStatus.COMPLETED
+                    self._finish(job, JobStatus.COMPLETED)
                     logger.info(f"Job {job.id} completed")
 
                 except Exception as e:
-                    job.status = JobStatus.FAILED
                     job.error_message = str(e)
+                    self._finish(job, JobStatus.FAILED)
                     logger.error(f"Job {job.id} failed: {e}")
 
                 if on_status_change:
