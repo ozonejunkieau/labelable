@@ -226,3 +226,28 @@ class TestImageTemplateEngine:
         output = image_engine.render(template, {"title": "Test"}, output_format="ptouch")
         # First 64 bytes should be null (CMD_INITIALIZE)
         assert output[:64] == b"\x00" * 64
+
+
+class TestTemplateFontPaths:
+    """A template's font_paths must only affect that template's renders."""
+
+    def test_font_paths_do_not_leak_to_later_templates(self, rectangular_template, tmp_path):
+        engine = ImageTemplateEngine(custom_font_paths=["templates/fonts"])
+        default_manager = engine._font_manager
+
+        with_paths = rectangular_template.model_copy(update={"name": "with-paths", "font_paths": [str(tmp_path)]})
+        engine.render(with_paths, {"title": "A"}, output_format="zpl")
+        template_manager = engine._font_manager
+        assert template_manager is not default_manager
+
+        engine.render(rectangular_template, {"title": "B"}, output_format="zpl")
+        assert engine._font_manager is default_manager
+        assert engine._text_renderer.font_manager is default_manager
+
+    def test_template_font_manager_also_searches_app_fonts(self, rectangular_template, tmp_path):
+        engine = ImageTemplateEngine(custom_font_paths=["templates/fonts"])
+        with_paths = rectangular_template.model_copy(update={"font_paths": [str(tmp_path)]})
+        engine.render(with_paths, {"title": "A"}, output_format="zpl")
+        searched = [str(p) for p in engine._font_manager._custom_paths]  # type: ignore[attr-defined]
+        assert str(tmp_path) in searched
+        assert "templates/fonts" in searched

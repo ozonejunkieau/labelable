@@ -58,13 +58,19 @@ class ImageTemplateEngine(BaseTemplateEngine):
         Args:
             custom_font_paths: Additional paths to search for fonts.
         """
-        self._font_manager = get_font_manager(custom_font_paths)
+        self._custom_font_paths = list(custom_font_paths or [])
+        self._default_font_manager = get_font_manager(custom_font_paths)
+        # Font managers for templates that set font_paths, keyed by those paths
+        self._template_font_managers: dict[tuple[str, ...], FontManager] = {}
+        self._use_font_manager(self._default_font_manager)
 
-        # Initialize element renderers
-        self._text_renderer = TextElementRenderer(self._font_manager)
-        self._qrcode_renderer = QRCodeElementRenderer(self._font_manager)
-        self._datamatrix_renderer = DataMatrixElementRenderer(self._font_manager)
-        self._code128_renderer = Code128ElementRenderer(self._font_manager)
+    def _use_font_manager(self, font_manager: FontManager) -> None:
+        """Point the element renderers (and batch text sizing) at a font manager."""
+        self._font_manager = font_manager
+        self._text_renderer = TextElementRenderer(font_manager)
+        self._qrcode_renderer = QRCodeElementRenderer(font_manager)
+        self._datamatrix_renderer = DataMatrixElementRenderer(font_manager)
+        self._code128_renderer = Code128ElementRenderer(font_manager)
 
     def render(
         self,
@@ -225,13 +231,23 @@ class ImageTemplateEngine(BaseTemplateEngine):
         return printer_type.lower() in self.SUPPORTED_TYPES
 
     def _apply_font_paths(self, template: TemplateConfig) -> None:
-        """Apply template-specific font paths if configured."""
-        if template.font_paths:
-            font_manager = FontManager(template.font_paths)
-            self._text_renderer = TextElementRenderer(font_manager)
-            self._qrcode_renderer = QRCodeElementRenderer(font_manager)
-            self._datamatrix_renderer = DataMatrixElementRenderer(font_manager)
-            self._code128_renderer = Code128ElementRenderer(font_manager)
+        """Select the fonts for this render.
+
+        Called on every render, so a template with ``font_paths`` affects only
+        its own labels. It used to replace the renderers for good, with a
+        manager that also lacked the app's fonts directory, so every later
+        template fell back to the default font.
+        """
+        if not template.font_paths:
+            font_manager = self._default_font_manager
+        else:
+            key = tuple(str(p) for p in template.font_paths)
+            font_manager = self._template_font_managers.get(key)
+            if font_manager is None:
+                font_manager = FontManager([*template.font_paths, *self._custom_font_paths])
+                self._template_font_managers[key] = font_manager
+        if font_manager is not self._font_manager:
+            self._use_font_manager(font_manager)
 
     def _render_single_label_image(
         self,
