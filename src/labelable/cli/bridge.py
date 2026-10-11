@@ -189,6 +189,7 @@ class BridgeDaemon:
                 data = await resp.read()
                 if not data:
                     return
+                job_id_header = resp.headers.get("X-Job-Id")
         except Exception as e:
             logger.warning(f"Job poll failed: {e}")
             return
@@ -213,7 +214,11 @@ class BridgeDaemon:
         try:
             async with self._session.post(
                 f"{self._api_base}/result",
-                json={"ok": ok, "error": error},
+                json={
+                    "ok": ok,
+                    "error": error,
+                    "job_id": int(job_id_header) if job_id_header and job_id_header.isdigit() else None,
+                },
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f"Result report failed (HTTP {resp.status})")

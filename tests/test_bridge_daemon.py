@@ -208,6 +208,7 @@ class TestBridgeDaemonPollAndPrint:
         mock_job_resp = AsyncMock()
         mock_job_resp.status = 200
         mock_job_resp.read = AsyncMock(return_value=test_data)
+        mock_job_resp.headers = {"X-Job-Id": "7"}
         mock_job_resp.__aenter__ = AsyncMock(return_value=mock_job_resp)
         mock_job_resp.__aexit__ = AsyncMock(return_value=False)
 
@@ -229,6 +230,7 @@ class TestBridgeDaemonPollAndPrint:
         result_call = mock_session.post.call_args
         assert "/result" in result_call[0][0]
         assert result_call[1]["json"]["ok"] is True
+        assert result_call[1]["json"]["job_id"] == 7  # echoed from X-Job-Id
 
     async def test_poll_reports_failure_on_print_error(self):
         daemon = _make_daemon()
@@ -239,6 +241,7 @@ class TestBridgeDaemonPollAndPrint:
         mock_job_resp = AsyncMock()
         mock_job_resp.status = 200
         mock_job_resp.read = AsyncMock(return_value=b"\x00" * 10)
+        mock_job_resp.headers = {}
         mock_job_resp.__aenter__ = AsyncMock(return_value=mock_job_resp)
         mock_job_resp.__aexit__ = AsyncMock(return_value=False)
 
@@ -267,6 +270,7 @@ class TestBridgeDaemonPollAndPrint:
         mock_job_resp = AsyncMock()
         mock_job_resp.status = 200
         mock_job_resp.read = AsyncMock(return_value=b"\x00" * 10)
+        mock_job_resp.headers = {}
         mock_job_resp.__aenter__ = AsyncMock(return_value=mock_job_resp)
         mock_job_resp.__aexit__ = AsyncMock(return_value=False)
 
@@ -504,6 +508,7 @@ class TestBridgeDaemonPollEdgeCases:
         mock_job_resp = AsyncMock()
         mock_job_resp.status = 200
         mock_job_resp.read = AsyncMock(return_value=b"\x00" * 10)
+        mock_job_resp.headers = {}
         mock_job_resp.__aenter__ = AsyncMock(return_value=mock_job_resp)
         mock_job_resp.__aexit__ = AsyncMock(return_value=False)
 
@@ -526,6 +531,7 @@ class TestBridgeDaemonPollEdgeCases:
         mock_job_resp = AsyncMock()
         mock_job_resp.status = 200
         mock_job_resp.read = AsyncMock(return_value=b"\x00" * 10)
+        mock_job_resp.headers = {}
         mock_job_resp.__aenter__ = AsyncMock(return_value=mock_job_resp)
         mock_job_resp.__aexit__ = AsyncMock(return_value=False)
 
@@ -750,6 +756,7 @@ def _resp(status: int, read: bytes = b"") -> AsyncMock:
     resp.status = status
     resp.read = AsyncMock(return_value=read)
     resp.text = AsyncMock(return_value="")
+    resp.headers = {}
     resp.__aenter__ = AsyncMock(return_value=resp)
     resp.__aexit__ = AsyncMock(return_value=False)
     return resp

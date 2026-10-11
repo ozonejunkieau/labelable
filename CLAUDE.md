@@ -756,7 +756,7 @@ uv run labelable-bridge --url http://labelable:7979 --api-key your-secret-key
 **How it works:**
 1. Finds the USB P-Touch printer and reads its serial number (or uses `--serial` fallback)
 2. Registers with Labelable via `POST /api/v1/bridge/register`
-3. Polls for jobs every 2s (`GET /bridge/{name}/job`), reports status every 15s
+3. Polls for jobs every 2s (`GET /bridge/{name}/job`), reports status every 15s. Each job carries an `X-Job-Id` header that the daemon echoes in its result, so a late result (after the server's 60 s job timeout) is ignored rather than credited to the next job
 4. All communication is outbound - no ports need to be opened on the bridge machine
 5. If the USB printer powers off or is replugged, the failed job is reported and the daemon reconnects on the next status report or job
 

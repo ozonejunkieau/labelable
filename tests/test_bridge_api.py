@@ -185,11 +185,13 @@ class TestBridgePolling:
         printer = printers["poll-test"]
         test_data = b"\x1b@\x1bia\x01\x00\x00"
         printer._pending_data = test_data
+        printer._current_job_id = 3
 
         response = client_with_bridge.get("/api/v1/bridge/poll-test/job")
         assert response.status_code == 200
         assert response.content == test_data
         assert response.headers["content-type"] == "application/octet-stream"
+        assert response.headers["x-job-id"] == "3"
 
         # Verify data was cleared
         assert printer.take_pending_job() is None

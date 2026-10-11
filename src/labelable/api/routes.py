@@ -428,6 +428,8 @@ class BridgeResultRequest(BaseModel):
 
     ok: bool
     error: str | None = None
+    # From the X-Job-Id header of the job; absent from older daemons
+    job_id: int | None = None
 
 
 def _get_bridge_printer(name: str) -> Any:
@@ -509,18 +511,20 @@ async def bridge_poll_job(name: str) -> Any:
     from fastapi.responses import Response
 
     printer = _get_bridge_printer(name)
-    data = printer.take_pending_job()
-    if data is None:
+    pending = printer.take_pending()
+    if pending is None:
         return Response(status_code=204)
-    return Response(content=data, media_type="application/octet-stream")
+    job_id, data = pending
+    # The daemon echoes the ID back with the result
+    return Response(content=data, media_type="application/octet-stream", headers={"X-Job-Id": str(job_id)})
 
 
 @router.post("/bridge/{name}/result")
 async def bridge_report_result(name: str, request: BridgeResultRequest) -> dict[str, str]:
     """Daemon reports the result of a print job."""
     printer = _get_bridge_printer(name)
-    printer.report_result(ok=request.ok, error=request.error)
-    return {"status": "ok"}
+    accepted = printer.report_result(ok=request.ok, error=request.error, job_id=request.job_id)
+    return {"status": "ok" if accepted else "ignored"}
 
 
 @router.post("/bridge/{name}/status")

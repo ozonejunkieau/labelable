@@ -200,6 +200,7 @@ class TestBridgePTouchPrinter:
         config = _make_bridge_config()
         printer = BridgePTouchPrinter(config)
         printer._pending_data = b"test"
+        printer._current_job_id = 1
         assert printer.take_pending_job() == b"test"
         assert printer.take_pending_job() is None
 
@@ -224,3 +225,56 @@ class TestBridgeConnectionModel:
         )
         assert isinstance(config.connection, BridgeConnection)
         assert config.connection.serial_number == "XYZ"
+
+
+class TestBridgeJobIds:
+    """Results must be credited to the job they belong to."""
+
+    def _printer(self):
+        from labelable.models.printer import BridgeConnection, PrinterConfig, PrinterType
+        from labelable.printers.bridge import BridgePTouchPrinter
+
+        return BridgePTouchPrinter(
+            PrinterConfig(name="b", type=PrinterType.PTOUCH, connection=BridgeConnection(serial_number="SN"))
+        )
+
+    async def test_late_result_does_not_complete_the_next_job(self, monkeypatch):
+        import asyncio
+
+        import labelable.printers.bridge as bridge_module
+        from labelable.printers.base import PrinterError
+
+        monkeypatch.setattr(bridge_module, "JOB_TIMEOUT", 0.05)
+        printer = self._printer()
+
+        # Job 1: daemon fetches it but its result only arrives after the timeout
+        first = asyncio.create_task(printer.print_raw(b"one"))
+        await asyncio.sleep(0)
+        job1_id, _ = printer.take_pending()
+        with pytest.raises(PrinterError, match="within timeout"):
+            await first
+
+        # Job 2 is waiting; the stale result for job 1 arrives
+        monkeypatch.setattr(bridge_module, "JOB_TIMEOUT", 1.0)
+        second = asyncio.create_task(printer.print_raw(b"two"))
+        await asyncio.sleep(0)
+        assert printer.report_result(ok=True, job_id=job1_id) is False
+        assert not second.done()
+
+        job2_id, data = printer.take_pending()
+        assert data == b"two" and job2_id != job1_id
+        assert printer.report_result(ok=True, job_id=job2_id) is True
+        await asyncio.wait_for(second, 1)
+
+    async def test_result_with_no_job_outstanding_is_ignored(self):
+        assert self._printer().report_result(ok=True, job_id=1) is False
+
+    async def test_legacy_result_without_job_id_accepted(self):
+        import asyncio
+
+        printer = self._printer()
+        task = asyncio.create_task(printer.print_raw(b"x"))
+        await asyncio.sleep(0)
+        printer.take_pending()
+        assert printer.report_result(ok=True) is True
+        await asyncio.wait_for(task, 1)

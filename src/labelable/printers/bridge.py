@@ -40,6 +40,10 @@ class BridgePTouchPrinter(BasePrinter):
             raise PrinterError(f"BridgePTouchPrinter requires BridgeConnection, got {type(conn).__name__}")
         # Pending job data for the daemon to pick up
         self._pending_data: bytes | None = None
+        # ID of the job print_raw is waiting on. Results carry it back, so a
+        # late result (after a timeout) is not credited to the next job.
+        self._job_counter = 0
+        self._current_job_id: int | None = None
         # Signalled when the daemon reports job result
         self._result_event = asyncio.Event()
         self._result_ok: bool = False
@@ -76,6 +80,8 @@ class BridgePTouchPrinter(BasePrinter):
 
     async def print_raw(self, data: bytes) -> None:
         """Store data for daemon pickup and wait for result."""
+        self._job_counter += 1
+        self._current_job_id = self._job_counter
         self._pending_data = data
         self._result_event.clear()
         self._result_ok = False
@@ -86,25 +92,44 @@ class BridgePTouchPrinter(BasePrinter):
         except TimeoutError:
             self._pending_data = None
             raise PrinterError("Bridge daemon did not complete job within timeout") from None
+        finally:
+            self._current_job_id = None
 
         if not self._result_ok:
             raise PrinterError(f"Bridge print failed: {self._result_error}")
 
-    def take_pending_job(self) -> bytes | None:
-        """Take the pending job data (called by the API when daemon polls).
+    def take_pending(self) -> tuple[int, bytes] | None:
+        """Take the pending job and its ID (called by the API when daemon polls).
 
-        Returns the raw bytes if a job is pending, None otherwise.
         Clears the pending data so the same job isn't returned twice.
         """
         data = self._pending_data
         self._pending_data = None
-        return data
+        if data is None or self._current_job_id is None:
+            return None
+        return self._current_job_id, data
 
-    def report_result(self, ok: bool, error: str | None = None) -> None:
-        """Report job completion (called by the API when daemon reports result)."""
+    def take_pending_job(self) -> bytes | None:
+        """Take the pending job data, without its ID."""
+        pending = self.take_pending()
+        return pending[1] if pending else None
+
+    def report_result(self, ok: bool, error: str | None = None, job_id: int | None = None) -> bool:
+        """Report job completion (called by the API when daemon reports result).
+
+        Returns False and ignores the result if it is not for the job being
+        waited on: a result arriving after that job timed out used to complete
+        the *next* job before the daemon had even fetched it. A daemon that
+        sends no job_id (older versions) is still accepted while a job is
+        outstanding.
+        """
+        if self._current_job_id is None or (job_id is not None and job_id != self._current_job_id):
+            logger.warning(f"Printer {self.name}: ignoring result for job {job_id} (waiting on {self._current_job_id})")
+            return False
         self._result_ok = ok
         self._result_error = error
         self._result_event.set()
+        return True
 
     @property
     def media_kind(self) -> str | None:
