@@ -13,6 +13,9 @@ templates_dir: ./templates
 #   - Authorization: Bearer <key> header
 #   - api_key query parameter
 # Requests via Home Assistant Ingress (sidebar) bypass this check.
+# NOTE: the key only protects the REST API (/api/v1) and can be bypassed;
+# the web UI's print routes and /mcp are not covered. Keep the ports on a
+# trusted network. See "Security" in README.md.
 # api_key: your-secret-key-here
 
 # User mapping for Home Assistant Ingress (maps HA user IDs to display names)

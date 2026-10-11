@@ -238,6 +238,32 @@ If `api_key` is set in config, requests must authenticate via one of:
 
 **Note:** Requests via Home Assistant Ingress (sidebar UI) are automatically authenticated and don't need the API key.
 
+> [!WARNING]
+> **The API key is not a complete access control.** It is checked on the REST API
+> (`/api/v1/...`) only, and can be bypassed. Treat any network that can reach
+> ports 7979/7980 as able to print, create templates and reload them. See
+> [Security](#security).
+
+### Security
+
+Known limitations of the API key (`api_key`), as of 0.5.1:
+
+| Gap | Effect |
+|-----|--------|
+| **`X-Ingress-Path` is trusted from any client.** A request carrying this header skips the key check (`api/routes.py`, `verify_api_key`) and, in dual HTTP+HTTPS mode, the block on direct HTTP access (`app.py`, `IngressPathMiddleware`). Only HA Ingress should send it, but nothing verifies that it did. | Anyone who can reach port 7979 or 7980 can call the whole REST API without the key. |
+| **The web UI's action routes are not covered by the key.** `POST /api/print/{template}/submit`, `POST /api/print/{template}/preview` and `/api/reload-templates` are on the UI router, which has no key dependency. | Anyone who can reach the port can print any template and reload templates. |
+| **The MCP endpoint (`/mcp`) does not check the key** when `mcp_enabled: true`. | Anyone who can reach the port can print and create or update templates through MCP. |
+
+What this means in practice:
+
+- **Don't expose ports 7979/7980 beyond a network you trust.** HA Ingress (the
+  sidebar) does not need either port mapped; leave them unmapped in the add-on's
+  Network settings unless something outside HA must reach Labelable.
+- Template creation is part of what is exposed. Jinja templates are rendered in
+  a sandbox (since 0.5.2), so a template cannot run arbitrary code, but it can
+  still send any command a printer accepts.
+- Leave `mcp_enabled` off unless the port is only reachable by trusted clients.
+
 ### API Endpoints
 
 | Method | Path | Description |
@@ -248,8 +274,8 @@ If `api_key` is set in config, requests must authenticate via one of:
 | POST | `/api/v1/print/{template}` | Submit print job |
 
 **Response Codes:**
-- `200` - Label printed successfully
-- `202` - Label queued (printer offline)
+- `200` - Job accepted and queued; the printer was online. It has not necessarily printed yet: poll `GET /api/v1/jobs/{job_id}`
+- `202` - Job queued; the printer is offline and the job prints when it comes back
 - `400` - Invalid request
 - `401` - Invalid or missing API key
 - `404` - Template or printer not found

@@ -185,6 +185,19 @@ printers:
 templates_dir: ./templates
 ```
 
+### API key: known gaps (documented, not fixed)
+
+`api_key` is a partial control, and that is a deliberate, documented state
+(README "Security"), not an oversight to quietly patch:
+
+- `verify_api_key` (`api/routes.py`) and `IngressPathMiddleware` (`app.py`)
+  trust an `X-Ingress-Path` header from any client.
+- The UI router (`api/ui.py`: print submit/preview, reload-templates) has no
+  key dependency.
+- The MCP route (`/mcp`) ignores the key.
+
+If you change any of these, update README "Security" in the same change.
+
 ### HA Connection Auto-Discovery
 
 When running as a Home Assistant add-on with no printers configured (or missing

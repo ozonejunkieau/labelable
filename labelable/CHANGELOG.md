@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Security: render Jinja templates in a sandbox. Templates can be created over the REST API and MCP, and an unsandboxed template could run arbitrary code inside the add-on
+- Document that the API key is a partial control (README "Security"): it can be bypassed with an `X-Ingress-Path` header and does not cover the web UI's print routes or MCP. Keep ports 7979/7980 on a trusted network
+- Fix SSL (dual HTTP+HTTPS) mode starting everything twice: two workers per printer contending for one connection and a second Cloudflare consumer bound to stale templates
+- Fix EPL2 image labels and non-ASCII text corrupted over the Home Assistant transport. The `zebra_printer` integration's `print_raw` now accepts `data_b64` for exact bytes, and Labelable uses it; update the integration alongside the add-on
+- Fix batch labels printed from the web UI collapsing into one label after preview
+- Fix web UI form handling: a checkbox defaulting to on could not be switched off, a blank number field failed to render, and a blank quantity caused a server error. Quantity is now limited to 1-100, and a printer the template doesn't support is rejected
+- Add a job page: after Print, the web UI shows the job's status, any error and the values printed. Previously the confirmation was invisible after a preview, inviting a second click
+- ESP32 bridge printers: a busy printer no longer shows as offline, a dropped connection is retried without risking a duplicate print, large jobs are no longer cut off by the request timeout, and a fault appearing after a job finished no longer fails that job
+
 ## 0.5.1
 
 - Add `zebra_bridge` connection type: Zebra GK/GX-series printers hosted by an ESP32-P4 network bridge (`zebra-bridge` firmware) over plain HTTP. `type: zpl` only; jinja and image templates work unchanged
