@@ -47,9 +47,19 @@ class BasePrinter(ABC):
         """
         if self._cached_online is None:
             return None
-        if time.monotonic() - self._cache_time > STATUS_CACHE_TTL:
+        if time.monotonic() - self._cache_time > self.status_cache_ttl:
             return None
         return self._cached_online
+
+    @property
+    def status_cache_ttl(self) -> float:
+        """How long a status check stays valid.
+
+        The worker refreshes the cache every healthcheck interval (60 s by
+        default). A fixed 30 s TTL made status read "unknown" for half of
+        every interval, so the TTL stretches to cover one missed check.
+        """
+        return max(STATUS_CACHE_TTL, self.config.healthcheck.interval * 2)
 
     def _update_cache(self, online: bool) -> None:
         """Update the cached online status."""

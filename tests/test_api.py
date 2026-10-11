@@ -136,7 +136,15 @@ class TestUIComponents:
         # Create tables with our actual row models
         printer_table = c.Table(
             data=[
-                PrinterRow(name="test", type="zpl", model="GX420D", status="Online", queue="0", last_checked="12:00:00")
+                PrinterRow(
+                    name="test",
+                    type="zpl",
+                    connection="TCP 10.0.0.5:9100",
+                    model="GX420D",
+                    status="Online",
+                    queue="0",
+                    last_checked="12:00:00",
+                )
             ],
             columns=[
                 DisplayLookup(field="name", title="Name"),

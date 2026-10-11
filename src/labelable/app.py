@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI
 from starlette.responses import Response
 from starlette.routing import Route
 
+from labelable import __version__
 from labelable.api import routes as api_routes
 from labelable.api import ui as ui_routes
 from labelable.config import AppConfig, load_config_async, load_templates, settings
@@ -258,7 +259,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Labelable",
         description="A general purpose label printing API and UI",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
 

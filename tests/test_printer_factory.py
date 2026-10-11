@@ -6,6 +6,7 @@ import pytest
 
 from labelable.models.printer import (
     HAConnection,
+    HealthcheckConfig,
     PrinterConfig,
     PrinterType,
     TCPConnection,
@@ -17,7 +18,6 @@ from labelable.printers import (
     ZPLPrinter,
     create_printer,
 )
-from labelable.printers.base import STATUS_CACHE_TTL
 
 
 class TestCreatePrinter:
@@ -127,8 +127,22 @@ class TestBasePrinterCache:
         assert printer.get_cached_online_status() is True
 
         # Simulate time passing beyond TTL by backdating the cache time
-        printer._cache_time = time.monotonic() - STATUS_CACHE_TTL - 1
+        printer._cache_time = time.monotonic() - printer.status_cache_ttl - 1
         assert printer.get_cached_online_status() is None
+
+    def test_cache_ttl_covers_healthcheck_interval(self):
+        """The cache must outlive the gap between healthchecks, or status
+        reads 'unknown' between them."""
+        config = PrinterConfig(
+            name="test",
+            type=PrinterType.ZPL,
+            connection=TCPConnection(host="192.168.1.100"),
+            healthcheck=HealthcheckConfig(interval=60),
+        )
+        printer = ZPLPrinter(config)
+        printer._update_cache(True)
+        printer._cache_time = time.monotonic() - 45  # past the old 30 s TTL, before the next check
+        assert printer.get_cached_online_status() is True
 
     def test_cache_offline_status(self):
         """Test caching offline status."""

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from labelable.models.printer import HealthcheckConfig, PrinterConfig, TCPConnection
-from labelable.printers.base import STATUS_CACHE_TTL, BasePrinter
+from labelable.printers.base import BasePrinter
 
 
 class MockBasePrinter(BasePrinter):
@@ -107,7 +107,7 @@ class TestBasePrinter:
         """Test get_cached_online_status with expired cache."""
         # Manually set cache with old timestamp
         printer._cached_online = True
-        printer._cache_time = time.monotonic() - STATUS_CACHE_TTL - 1
+        printer._cache_time = time.monotonic() - printer.status_cache_ttl - 1
 
         result = printer.get_cached_online_status()
         assert result is None

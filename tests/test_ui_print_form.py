@@ -236,3 +236,51 @@ class TestListFieldDefault:
         signals = next(f for f in form["formFields"] if f["name"] == "signals")
         assert signals["type"] == "FormFieldTextarea"
         assert signals["initial"] == "GND\nVCC"
+
+
+class TestDisplayHelpers:
+    @pytest.mark.parametrize(
+        ("connection", "expected"),
+        [
+            ({"type": "tcp", "host": "10.0.0.5"}, "TCP 10.0.0.5:9100"),
+            ({"type": "serial", "device": "/dev/ttyUSB0"}, "Serial /dev/ttyUSB0"),
+            ({"type": "usb"}, "USB"),
+            ({"type": "ha", "device_id": "garage"}, "Home Assistant (garage)"),
+            ({"type": "bridge", "serial_number": "ABC"}, "Bridge daemon (ABC)"),
+            ({"type": "ptouch_bridge", "host": "esp32-ptouch"}, "P-Touch bridge esp32-ptouch"),
+            ({"type": "zebra_bridge", "host": "esp32-zebra"}, "Zebra bridge esp32-zebra"),
+        ],
+    )
+    def test_connection_summary_covers_every_transport(self, connection, expected):
+        from labelable.models.printer import PrinterConfig
+
+        printer_type = "ptouch" if connection["type"] in ("usb", "bridge", "ptouch_bridge") else "zpl"
+        config = PrinterConfig.model_validate({"name": "p", "type": printer_type, "connection": connection})
+        assert ui._connection_summary(config.connection) == expected
+
+    @pytest.mark.parametrize(
+        ("cached", "errors", "expected"),
+        [
+            (None, None, "Checking..."),
+            (True, None, "Online"),
+            (False, None, "Offline"),
+            (False, ["head_open", "paused"], "Offline: head open, paused"),
+        ],
+    )
+    def test_status_text(self, cached, errors, expected):
+        printer = MagicMock()
+        printer.get_cached_online_status.return_value = cached
+        printer.errors = errors
+        assert ui._status_text(printer) == expected
+
+    def test_circle_size_uses_diameter(self):
+        circle = _template(dimensions=LabelDimensions(diameter_mm=50))
+        assert ui._size_text(circle) == "50 mm diameter"
+        assert ui._size_text(_template()) == "9 x 50 mm"
+
+    def test_printer_name_is_url_encoded(self, client, ui_state):
+        ui._app_state["printers"] = {"Office & Shed #1": ui._app_state["printers"]["p1"]}
+        ui._app_state["templates"]["batch"] = _template(supported_printers=["Office & Shed #1"])
+        form = _find(client.get("/api/print/batch").json(), "ModelForm")
+        assert form is not None
+        assert form["submitUrl"].endswith("?printer=Office%20%26%20Shed%20%231")

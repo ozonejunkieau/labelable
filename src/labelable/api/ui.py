@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from importlib.metadata import version
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastui import AnyComponent, FastUI
@@ -37,6 +38,7 @@ class PrinterRow(BaseModel):
 
     name: str
     type: str
+    connection: str
     model: str
     status: str
     queue: str
@@ -384,6 +386,60 @@ def set_app_state(
     _app_state["download_google_fonts"] = download_google_fonts
 
 
+def _connection_summary(conn: Any) -> str:
+    """Short human description of how a printer is reached, for every transport."""
+    kind = getattr(conn, "type", "")
+    if kind == "tcp":
+        return f"TCP {conn.host}:{conn.port}"
+    if kind == "serial":
+        return f"Serial {conn.device}"
+    if kind == "usb":
+        return "USB"
+    if kind == "ha":
+        return f"Home Assistant ({conn.device_id})"
+    if kind == "bridge":
+        return f"Bridge daemon ({conn.serial_number})"
+    if kind == "ptouch_bridge":
+        return f"P-Touch bridge {conn.host}"
+    if kind == "zebra_bridge":
+        return f"Zebra bridge {conn.host}"
+    return str(kind)
+
+
+def _status_text(printer: Any) -> str:
+    """Online/Offline/Checking, with the printer's own reason when it has one."""
+    cached = printer.get_cached_online_status()
+    if cached is None:
+        return "Checking..."
+    if cached:
+        return "Online"
+    errors = getattr(printer, "errors", None)
+    if isinstance(errors, list) and errors:
+        return "Offline: " + ", ".join(str(e).replace("_", " ") for e in errors)
+    return "Offline"
+
+
+def _printer_status_line(name: str, printer: Any, queue: Any) -> str:
+    """One line of status for a printer on the print form."""
+    status = _status_text(printer)
+    line = f"Printer: {name} - {status}"
+    if status.startswith("Offline"):
+        line += " (jobs will wait in the queue)"
+    line += f" - {_connection_summary(printer.config.connection)}"
+    queue_size = queue.get_queue_size(name) if queue else 0
+    if queue_size > 0:
+        line += f" [{queue_size} queued]"
+    return line
+
+
+def _size_text(template: Any) -> str:
+    """Label size, as a diameter for circular labels (which have no width/height)."""
+    dims = template.dimensions
+    if dims.diameter_mm:
+        return f"{dims.diameter_mm:g} mm diameter"
+    return f"{dims.width_mm:g} x {dims.height_mm:g} mm"
+
+
 def _page_wrapper(*components: AnyComponent, title: str = "Labelable") -> list[AnyComponent]:
     """Wrap components in a standard page layout."""
     return [
@@ -430,7 +486,6 @@ async def home(request: Request) -> list[AnyComponent]:
     # Build cards for each template using FastUI Div components
     template_cards = []
     for template in templates.values():
-        dims = template.dimensions
         template_cards.append(
             c.Div(
                 class_name="col-md-6 col-lg-4 mb-3",
@@ -446,7 +501,7 @@ async def home(request: Request) -> list[AnyComponent]:
                                         components=[
                                             c.Heading(text=template.name, level=5),
                                             c.Paragraph(text=template.description or "No description"),
-                                            c.Text(text=f"Size: {dims.width_mm} x {dims.height_mm} mm"),
+                                            c.Text(text=f"Size: {_size_text(template)}"),
                                         ],
                                     ),
                                 ],
@@ -534,20 +589,7 @@ async def printers_page() -> list[AnyComponent]:
     rows = []
     for name, printer in printers.items():
         # Use cached status to avoid blocking page render
-        cached_status = printer.get_cached_online_status()
-        if cached_status is None:
-            status = "Unknown"
-        elif cached_status:
-            status = "Online"
-        else:
-            status = "Offline"
-
-        # Get connection info (IP:PORT for TCP)
-        conn = printer.config.connection
-        if hasattr(conn, "host") and hasattr(conn, "port"):
-            status = f"{status} ({conn.host}:{conn.port})"
-        elif hasattr(conn, "device"):
-            status = f"{status} ({conn.device})"
+        status = _status_text(printer)
 
         # Format last checked time
         if printer.last_checked:
@@ -560,6 +602,7 @@ async def printers_page() -> list[AnyComponent]:
             PrinterRow(
                 name=name,
                 type=str(printer.config.type),
+                connection=_connection_summary(printer.config.connection),
                 model=printer.model_info or "-",
                 status=status,
                 queue=str(queue_size),
@@ -569,12 +612,18 @@ async def printers_page() -> list[AnyComponent]:
 
     return _page_wrapper(
         c.Heading(text="Printers", level=2),
-        c.Button(text="Refresh", on_click=PageEvent(name="reload")),
+        # Nothing listened for the old PageEvent("reload"), so the button did
+        # nothing; navigating with a fresh query re-fetches the page
+        c.Button(
+            text="Refresh",
+            on_click=GoToEvent(url="/printers", query={"t": str(int(datetime.now().timestamp()))}),
+        ),
         c.Table(
             data=rows,
             columns=[
                 DisplayLookup(field="name", title="Name"),
                 DisplayLookup(field="type", title="Type"),
+                DisplayLookup(field="connection", title="Connection"),
                 DisplayLookup(field="model", title="Model"),
                 DisplayLookup(field="status", title="Status"),
                 DisplayLookup(field="queue", title="Queue"),
@@ -663,7 +712,6 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
 
     template = templates[template_name]
-    dims = template.dimensions
 
     # Build list of compatible printers first (needed to decide what to show)
     compatible_printers = [
@@ -677,7 +725,7 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
     template_info: list[AnyComponent] = [
         c.Heading(text=template.name, level=2),
         c.Paragraph(text=template.description or "No description"),
-        c.Paragraph(text=f"Label size: {dims.width_mm} x {dims.height_mm} mm"),
+        c.Paragraph(text=f"Label size: {_size_text(template)}"),
     ]
 
     # Only show detailed field table when no printers available (review mode)
@@ -732,34 +780,9 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
         if len(compatible_printers) == 1:
             # Single printer - show status (use cached to avoid blocking)
             printer_name = compatible_printers[0][0]
-            printer = printers[printer_name]
-            cached_status = printer.get_cached_online_status()
-            queue_size = queue.get_queue_size(printer_name) if queue else 0
-
-            # Get connection info
-            conn = printer.config.connection
-            if hasattr(conn, "host") and hasattr(conn, "port"):
-                conn_info = f"{conn.host}:{conn.port}"
-            elif hasattr(conn, "device"):
-                conn_info = conn.device
-            else:
-                conn_info = ""
-
-            # Build status text with indicators
-            if cached_status is None:
-                status_text = f"Printer: {printer_name}"
-            elif cached_status:
-                status_text = f"Printer: {printer_name} - Online"
-            else:
-                status_text = f"Printer: {printer_name} - Offline (will queue)"
-            if conn_info:
-                status_text += f" ({conn_info})"
-            if queue_size > 0:
-                status_text += f" [{queue_size} queued]"
-
             form_components = [
                 c.Heading(text="Print", level=4),
-                c.Paragraph(text=status_text),
+                c.Paragraph(text=_printer_status_line(printer_name, printers[printer_name], queue)),
             ]
             # Show fixed quantity if set
             if template.quantity is not None:
@@ -775,7 +798,7 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
                 form_components.append(
                     c.ModelForm(
                         model=_create_form_model(template, None),
-                        submit_url=f"{api_root}/print/{template_name}/preview?printer={printer_name}",
+                        submit_url=f"{api_root}/print/{template_name}/preview?printer={quote(printer_name, safe='')}",
                         display_mode="default",
                     ),
                 )
@@ -783,13 +806,18 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
                 form_components.append(
                     c.ModelForm(
                         model=_create_form_model(template, None),
-                        submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
+                        submit_url=f"{api_root}/print/{template_name}/submit?printer={quote(printer_name, safe='')}",
                         display_mode="default",
                     ),
                 )
         else:
+            # Several printers: show each one's status, not just the dropdown
             form_components = [
                 c.Heading(text="Print", level=4),
+                *[
+                    c.Paragraph(text=_printer_status_line(name, printers[name], queue), class_name="mb-1")
+                    for name, _ in compatible_printers
+                ],
             ]
             # Show fixed quantity if set
             if template.quantity is not None:
@@ -1168,7 +1196,7 @@ async def preview_label(
             components=[
                 c.ModelForm(
                     model=HiddenPrintModel,
-                    submit_url=f"{api_root}/print/{template_name}/submit?printer={printer_name}",
+                    submit_url=f"{api_root}/print/{template_name}/submit?printer={quote(printer_name, safe='')}",
                     submit_trigger=PageEvent(name="print-form"),
                 ),
             ],
