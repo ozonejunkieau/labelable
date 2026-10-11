@@ -128,3 +128,60 @@ class TestPrintJob:
 
         # With 0 timeout, should be expired immediately
         assert job.is_expired(0) is True
+
+
+class TestPrinterConfigValidation:
+    """Mismatched type/connection combinations fail at load, not at print time."""
+
+    @pytest.mark.parametrize(
+        ("printer_type", "connection"),
+        [
+            ("zpl", {"type": "bridge", "serial_number": "X"}),
+            ("zpl", {"type": "usb"}),
+            ("zpl", {"type": "ptouch_bridge", "host": "h"}),
+            ("ptouch", {"type": "tcp", "host": "h"}),
+            ("ptouch", {"type": "ha", "device_id": "d"}),
+            ("epl2", {"type": "zebra_bridge", "host": "h"}),
+        ],
+    )
+    def test_mismatch_rejected(self, printer_type, connection):
+        from pydantic import ValidationError
+
+        from labelable.models.printer import PrinterConfig
+
+        with pytest.raises(ValidationError, match="only supports type"):
+            PrinterConfig.model_validate({"name": "p", "type": printer_type, "connection": connection})
+
+    @pytest.mark.parametrize(
+        ("printer_type", "connection"),
+        [
+            ("zpl", {"type": "tcp", "host": "h"}),
+            ("epl2", {"type": "serial", "device": "/dev/ttyUSB0"}),
+            ("epl2", {"type": "ha", "device_id": "d"}),
+            ("ptouch", {"type": "usb"}),
+            ("ptouch", {"type": "bridge", "serial_number": "X"}),
+            ("ptouch", {"type": "ptouch_bridge", "host": "h"}),
+            ("zpl", {"type": "zebra_bridge", "host": "h"}),
+        ],
+    )
+    def test_valid_combinations_accepted(self, printer_type, connection):
+        from labelable.models.printer import PrinterConfig
+
+        PrinterConfig.model_validate({"name": "p", "type": printer_type, "connection": connection})
+
+    def test_zero_healthcheck_interval_rejected(self):
+        from pydantic import ValidationError
+
+        from labelable.models.printer import HealthcheckConfig
+
+        with pytest.raises(ValidationError):
+            HealthcheckConfig(interval=0)
+
+    def test_duplicate_printer_names_rejected(self):
+        from pydantic import ValidationError
+
+        from labelable.config import AppConfig
+
+        printer = {"name": "dup", "type": "zpl", "connection": {"type": "tcp", "host": "h"}}
+        with pytest.raises(ValidationError, match="duplicate printer name 'dup'"):
+            AppConfig.model_validate({"printers": [printer, printer]})

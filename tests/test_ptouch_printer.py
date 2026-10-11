@@ -58,8 +58,17 @@ class TestPTouchPrinterInit:
         assert printer.name == "test-ptouch"
         assert not printer.is_connected
 
+    def test_config_rejects_non_usb_connection(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="only supports type"):
+            _make_config(TCPConnection(host="192.168.1.1"))
+
     def test_rejects_non_usb_connection(self):
-        config = _make_config(TCPConnection(host="192.168.1.1"))
+        """The runtime guard still holds for a config built without validation."""
+        config = PrinterConfig.model_construct(
+            name="ptouch", type=PrinterType.PTOUCH, connection=TCPConnection(host="192.168.1.1")
+        )
         printer = PTouchPrinter(config)
         with pytest.raises(PrinterError, match="USB connection"):
             import asyncio

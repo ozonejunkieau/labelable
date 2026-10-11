@@ -139,7 +139,7 @@ ConnectionConfig = Annotated[
 class HealthcheckConfig(BaseModel):
     """Healthcheck configuration for a printer."""
 
-    interval: int = 60  # Seconds between status checks
+    interval: int = Field(default=60, ge=1)  # Seconds between status checks; 0 busy-looped
     command: str | None = None  # Custom command (default depends on printer type)
 
 
@@ -154,6 +154,22 @@ class PrinterConfig(BaseModel):
 
     @model_validator(mode="after")
     def _check_connection_matches_type(self) -> "PrinterConfig":
-        if isinstance(self.connection, ZebraBridgeConnection) and self.type != PrinterType.ZPL:
-            raise ValueError(f"zebra_bridge connection only supports type 'zpl', not '{self.type}'")
+        # A mismatch used to load fine and fail later: type zpl over a P-Touch
+        # bridge sent ZPL to a P-Touch, and type zpl over usb read offline forever.
+        allowed = _TYPES_FOR_CONNECTION[self.connection.type]
+        if self.type not in allowed:
+            names = ", ".join(f"'{t.value}'" for t in allowed)
+            raise ValueError(f"{self.connection.type} connection only supports type {names}, not '{self.type.value}'")
         return self
+
+
+# Printer types each connection can actually drive
+_TYPES_FOR_CONNECTION: dict[str, tuple[PrinterType, ...]] = {
+    "tcp": (PrinterType.ZPL, PrinterType.EPL2),
+    "serial": (PrinterType.ZPL, PrinterType.EPL2),
+    "ha": (PrinterType.ZPL, PrinterType.EPL2),
+    "usb": (PrinterType.PTOUCH,),
+    "bridge": (PrinterType.PTOUCH,),
+    "ptouch_bridge": (PrinterType.PTOUCH,),
+    "zebra_bridge": (PrinterType.ZPL,),
+}

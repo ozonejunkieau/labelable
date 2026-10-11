@@ -6,7 +6,7 @@ from pathlib import Path
 
 import aiohttp
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from labelable.models.printer import HAConnection, PrinterConfig, PrinterType
@@ -48,6 +48,19 @@ class AppConfig(BaseModel):
     templates_dir: Path = Path("./templates")
     fonts_dir: Path = Path("./fonts")
     printers: list[PrinterConfig] = Field(default_factory=list)
+
+    @field_validator("printers")
+    @classmethod
+    def _unique_printer_names(cls, printers: list[PrinterConfig]) -> list[PrinterConfig]:
+        # A duplicate used to overwrite the first silently, while the queue
+        # kept the first's worker: jobs rendered for one printer printed on the other
+        seen: set[str] = set()
+        for printer in printers:
+            if printer.name in seen:
+                raise ValueError(f"duplicate printer name '{printer.name}'")
+            seen.add(printer.name)
+        return printers
+
     # User mapping: HA user ID -> display name
     user_mapping: dict[str, str] = Field(default_factory=dict)
     default_user: str = ""
