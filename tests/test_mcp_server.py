@@ -118,6 +118,25 @@ class TestPrintLabel:
         assert data["message"] == "Label submitted for printing"
         setup_state["queue"].submit.assert_called_once()
 
+    @pytest.mark.parametrize("quantity", [0, -1, 101])
+    async def test_quantity_out_of_range_rejected(self, mcp_server, setup_state, quantity):
+        result = await _call_tool(
+            mcp_server,
+            "print_label",
+            {"template_name": "test-label", "data": {"title": "x"}, "printer": "zpl", "quantity": quantity},
+        )
+        assert "error" in json.loads(result)
+        setup_state["queue"].submit.assert_not_called()
+
+    async def test_fixed_template_quantity_wins(self, mcp_server, setup_state):
+        setup_state["templates"]["test-label"].quantity = 2
+        await _call_tool(
+            mcp_server,
+            "print_label",
+            {"template_name": "test-label", "data": {"title": "x"}, "printer": "zpl", "quantity": 7},
+        )
+        assert setup_state["queue"].submit.call_args.args[0].quantity == 2
+
     async def test_template_not_found(self, mcp_server, setup_state):
         result = await _call_tool(
             mcp_server,

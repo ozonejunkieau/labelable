@@ -15,7 +15,7 @@ from typing import Any
 import aiohttp
 
 from labelable.config import AppConfig
-from labelable.models.job import PrintJob
+from labelable.models.job import PrintJob, resolve_quantity
 from labelable.models.template import EngineType
 from labelable.printers import dpi_mismatch_warning
 
@@ -98,6 +98,16 @@ async def _process_message(
         )
         return False
 
+    if printer_name not in template.supported_printers:
+        # Retrying cannot fix the message, and printing would send the wrong
+        # language to the printer. REST and MCP refuse this too.
+        logger.error(
+            "CF queue: printer %r does not support template %r, discarding",
+            printer_name,
+            template_name,
+        )
+        return True
+
     printer = printers[printer_name]
 
     # Nack if printer is offline so the message is retried later
@@ -111,6 +121,15 @@ async def _process_message(
     # file, properties) are still accessible at their original paths.
     properties = body.get("properties")
     context: dict[str, object] = {**(properties if isinstance(properties, dict) else {}), **body}
+
+    # Quantity may be given at the top level or in properties; a template's
+    # fixed quantity wins, as for every other job source
+    try:
+        quantity = resolve_quantity(context.get("quantity"), template.quantity)
+    except ValueError as exc:
+        logger.error("CF queue: %s, discarding message", exc)
+        return True
+    context["quantity"] = quantity
 
     # Render
     try:
@@ -136,6 +155,7 @@ async def _process_message(
         template_name=template_name,
         printer_name=printer_name,
         data=body,
+        quantity=quantity,
         rendered_content=rendered,
     )
     await queue.submit(job)
@@ -184,66 +204,116 @@ async def run_cloudflare_queue_consumer(
     }
 
     logger.info("Cloudflare Queue consumer started (queue_id=%s)", cf.queue_id)
-    backoff = 1.0
+    backoff = _Backoff()
 
     async with aiohttp.ClientSession(headers=headers) as session:
         while True:
-            # --- Pull a batch ---
             try:
-                async with session.post(
-                    pull_url,
-                    json={
-                        "batch_size": cf.batch_size,
-                        "visibility_timeout_ms": cf.visibility_timeout_ms,
-                    },
-                ) as resp:
-                    if resp.status != 200:
-                        text = await resp.text()
-                        logger.error("CF queue pull failed: HTTP %d - %s", resp.status, text)
-                        await asyncio.sleep(min(backoff, 60.0))
-                        backoff = min(backoff * 2, 60.0)
-                        continue
+                delay = await _poll_once(
+                    session, pull_url, ack_url, cf, templates, printers, queue, jinja_engine, image_engine, backoff
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Nothing awaits this task, so an escaping exception would stop
+                # the consumer silently until the add-on restarted.
+                delay = backoff.next()
+                logger.exception("CF queue: unexpected error in poll loop, retrying in %.0fs", delay)
+            if delay:
+                await asyncio.sleep(delay)
 
-                    payload = await resp.json()
-                    messages: list[dict] = (payload.get("result") or {}).get("messages") or []
-                    backoff = 1.0
 
-            except (aiohttp.ClientError, TimeoutError) as exc:
-                logger.warning("CF queue network error: %s — retrying in %.0fs", exc, backoff)
-                await asyncio.sleep(min(backoff, 60.0))
-                backoff = min(backoff * 2, 60.0)
-                continue
+class _Backoff:
+    """Exponential back-off for pull failures: 1, 2, 4 ... capped at 60 s."""
 
-            if not messages:
-                await asyncio.sleep(cf.poll_interval_seconds)
-                continue
+    def __init__(self) -> None:
+        self._delay = 1.0
 
-            # --- Process messages and collect ack/retry sets ---
-            ack_ids: list[dict] = []
-            retry_ids: list[dict] = []
+    def next(self) -> float:
+        delay = self._delay
+        self._delay = min(self._delay * 2, 60.0)
+        return delay
 
-            for msg in messages:
-                lease_id = msg.get("lease_id", "")
-                try:
-                    should_ack = await _process_message(msg, templates, printers, queue, jinja_engine, image_engine)
-                except Exception:
-                    logger.exception("CF queue: unexpected error processing message, discarding")
-                    should_ack = True
+    def reset(self) -> None:
+        self._delay = 1.0
 
-                (ack_ids if should_ack else retry_ids).append({"lease_id": lease_id})
 
-            # --- Acknowledge in a single request ---
-            ack_body: dict[str, Any] = {}
-            if ack_ids:
-                ack_body["acks"] = ack_ids
-            if retry_ids:
-                ack_body["retries"] = retry_ids
+async def _poll_once(
+    session: aiohttp.ClientSession,
+    pull_url: str,
+    ack_url: str,
+    cf: Any,
+    templates: dict,
+    printers: dict,
+    queue: Any,
+    jinja_engine: Any,
+    image_engine: Any,
+    backoff: "_Backoff",
+) -> float | None:
+    """Pull one batch, process it and ack it.
 
-            if ack_body:
-                try:
-                    async with session.post(ack_url, json=ack_body) as ack_resp:
-                        if ack_resp.status != 200:
-                            text = await ack_resp.text()
-                            logger.warning("CF queue ack failed: HTTP %d - %s", ack_resp.status, text)
-                except aiohttp.ClientError as exc:
-                    logger.warning("CF queue ack network error: %s", exc)
+    Returns how long to sleep before the next pull, or None to pull again
+    straight away.
+    """
+    # --- Pull a batch ---
+    try:
+        async with session.post(
+            pull_url,
+            json={
+                "batch_size": cf.batch_size,
+                "visibility_timeout_ms": cf.visibility_timeout_ms,
+            },
+        ) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                logger.error("CF queue pull failed: HTTP %d - %s", resp.status, text)
+                return backoff.next()
+            payload = await resp.json()
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        delay = backoff.next()
+        logger.warning("CF queue network error: %s — retrying in %.0fs", exc, delay)
+        return delay
+
+    backoff.reset()
+    result = payload.get("result") if isinstance(payload, dict) else None
+    messages = result.get("messages") if isinstance(result, dict) else None
+    if not isinstance(messages, list) or not messages:
+        return cf.poll_interval_seconds
+
+    # --- Process messages and collect ack/retry sets ---
+    ack_ids: list[dict] = []
+    retry_ids: list[dict] = []
+
+    for msg in messages:
+        lease_id = msg.get("lease_id", "") if isinstance(msg, dict) else ""
+        try:
+            should_ack = await _process_message(msg, templates, printers, queue, jinja_engine, image_engine)
+        except Exception:
+            logger.exception("CF queue: unexpected error processing message, discarding")
+            should_ack = True
+
+        if should_ack:
+            ack_ids.append({"lease_id": lease_id})
+        else:
+            retry_ids.append({"lease_id": lease_id, "delay_seconds": cf.retry_delay_seconds})
+
+    # --- Acknowledge in a single request ---
+    ack_body: dict[str, Any] = {}
+    if ack_ids:
+        ack_body["acks"] = ack_ids
+    if retry_ids:
+        ack_body["retries"] = retry_ids
+
+    try:
+        async with session.post(ack_url, json=ack_body) as ack_resp:
+            if ack_resp.status != 200:
+                text = await ack_resp.text()
+                logger.warning("CF queue ack failed: HTTP %d - %s", ack_resp.status, text)
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        logger.warning("CF queue ack network error: %s", exc)
+
+    # Nothing in this batch could be printed (e.g. printer offline): wait
+    # before pulling again rather than spinning on the rest of the queue
+    if not ack_ids:
+        return cf.poll_interval_seconds
+    return None

@@ -216,3 +216,30 @@ class TestApiKeyAuth:
         self._setup_state_with_key(queue, jinja_engine, api_key="secret123")
         response = client.get("/api/v1/printers", headers={"X-Ingress-Path": "/hassio_ingress/abc123"})
         assert response.status_code == 200
+
+
+class TestPrintQuantity:
+    def _setup(self, queue, jinja_engine, **template_overrides):
+        template = _make_jinja_template()
+        for key, value in template_overrides.items():
+            setattr(template, key, value)
+        api_routes.set_app_state(
+            {"test-printer": _make_mock_printer()}, {"test-template": template}, queue, jinja_engine
+        )
+
+    @pytest.mark.parametrize("quantity", [0, -2, 101])
+    def test_out_of_range_rejected(self, client, queue, jinja_engine, quantity):
+        self._setup(queue, jinja_engine)
+        resp = client.post(
+            "/api/v1/print/test-template", json={"printer": "test-printer", "quantity": quantity, "data": {"name": "x"}}
+        )
+        assert resp.status_code == 422
+        assert queue.get_queue_size("test-printer") == 0
+
+    def test_fixed_template_quantity_wins(self, client, queue, jinja_engine):
+        self._setup(queue, jinja_engine, quantity=3)
+        resp = client.post(
+            "/api/v1/print/test-template", json={"printer": "test-printer", "quantity": 9, "data": {"name": "x"}}
+        )
+        job = queue.get_job(resp.json()["job_id"])
+        assert job is not None and job.quantity == 3

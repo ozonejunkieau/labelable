@@ -35,6 +35,10 @@ class CloudflareQueueConfig(BaseModel):
     batch_size: int = 10
     # How long (ms) a pulled message is hidden before re-delivery if not acked
     visibility_timeout_ms: int = 30_000
+    # How long a message is held back after a retry (printer offline, no
+    # compatible printer). Without a delay Cloudflare redelivers at once,
+    # which spun the consumer and used up the queue's max_retries in seconds.
+    retry_delay_seconds: int = 60
 
 
 class AppConfig(BaseModel):

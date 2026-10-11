@@ -6,10 +6,10 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from labelable.api.template_crud import TemplateCRUDError, create_template_on_disk, update_template_on_disk
-from labelable.models.job import JobStatus, PrintJob
+from labelable.models.job import MAX_QUANTITY, JobStatus, PrintJob, resolve_quantity
 from labelable.models.printer import BridgeConnection, HealthcheckConfig, PrinterConfig, PrinterType
 from labelable.models.template import EngineType, TemplateConfig, TemplateField
 from labelable.printers import dpi_mismatch_warning
@@ -121,7 +121,7 @@ class PrintRequest(BaseModel):
     """Print request body."""
 
     printer: str | None = None
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1, le=MAX_QUANTITY)
     data: dict[str, Any] = {}
 
 
@@ -312,8 +312,11 @@ async def print_label(template_name: str, request: PrintRequest) -> PrintRespons
             detail=f"Printer '{printer_name}' not in template's supported_printers list",
         )
 
+    # A template's fixed quantity wins over the request
+    quantity = resolve_quantity(request.quantity, template.quantity)
+
     # Add quantity to context for template use (e.g., "1 of {{ quantity }}")
-    render_context = {**request.data, "quantity": request.quantity}
+    render_context = {**request.data, "quantity": quantity}
 
     # Render template using the appropriate engine
     try:
@@ -336,7 +339,7 @@ async def print_label(template_name: str, request: PrintRequest) -> PrintRespons
         template_name=template_name,
         printer_name=printer_name,
         data=request.data,
-        quantity=request.quantity,
+        quantity=quantity,
         rendered_content=rendered,
     )
 

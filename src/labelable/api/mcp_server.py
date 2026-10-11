@@ -8,7 +8,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from labelable.api.template_crud import TemplateCRUDError, create_template_on_disk, update_template_on_disk
-from labelable.models.job import PrintJob
+from labelable.models.job import PrintJob, resolve_quantity
 from labelable.models.template import EngineType, TemplateConfig
 from labelable.printers import dpi_mismatch_warning
 
@@ -154,6 +154,11 @@ def create_mcp_server() -> MCPServer:
 
         if printer_name not in template.supported_printers:
             return json.dumps({"error": f"Printer '{printer_name}' not in template's supported_printers list"})
+
+        try:
+            quantity = resolve_quantity(quantity, template.quantity)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
 
         render_context = {**data, "quantity": quantity}
 

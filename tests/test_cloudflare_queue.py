@@ -344,9 +344,13 @@ class TestConsumerStartupGuards:
         mock_session_instance.__aexit__ = AsyncMock(return_value=False)
         mock_session_instance.post = MagicMock(return_value=mock_resp)
 
+        # The loop survives the error (see TestConsumerSupervision); stop it at
+        # the back-off sleep and check it got past the token guard to a pull
         with patch("labelable.integrations.cloudflare_queue.aiohttp.ClientSession", return_value=mock_session_instance):
-            with pytest.raises(Exception, match="stop"):
-                await run_cloudflare_queue_consumer(config, {}, {}, _make_queue(), MagicMock(), MagicMock())
+            with _patch_sleep():
+                with pytest.raises(asyncio.CancelledError):
+                    await run_cloudflare_queue_consumer(config, {}, {}, _make_queue(), MagicMock(), MagicMock())
+        mock_session_instance.post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_exits_when_account_id_missing(self):
@@ -553,7 +557,7 @@ class TestPollLoop:
 
         ack_body = session.post.call_args_list[1][1]["json"]
         assert "acks" not in ack_body
-        assert ack_body["retries"] == [{"lease_id": "lease-1"}]
+        assert ack_body["retries"] == [{"lease_id": "lease-1", "delay_seconds": 60}]
 
     @pytest.mark.asyncio
     async def test_ack_http_error_is_logged_not_raised(self):
@@ -592,3 +596,116 @@ class TestPollLoop:
         ack_body = session.post.call_args_list[1][1]["json"]
         assert ack_body["acks"] == [{"lease_id": "l1"}]
         assert "retries" not in ack_body
+
+
+# ---------------------------------------------------------------------------
+# Audit follow-ups: printer support, quantity, retry pacing, supervision
+# ---------------------------------------------------------------------------
+
+
+def _engine() -> MagicMock:
+    engine = MagicMock()
+    engine.render = MagicMock(return_value=b"^XA^XZ")
+    return engine
+
+
+class TestMessageRules:
+    @pytest.mark.asyncio
+    async def test_named_printer_not_supporting_template_is_discarded(self):
+        printers = {"zpl-printer": _make_printer(), "ptouch": _make_printer("ptouch")}
+        queue = _make_queue()
+        msg = _make_message({"event_type": "print_label", "printer": "ptouch"})
+        result = await _process_message(msg, {"print_label": _make_template()}, printers, queue, _engine(), None)
+        assert result is True
+        queue.submit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("body_extra", "expected"),
+        [({}, 1), ({"quantity": 3}, 3), ({"properties": {"quantity": "2"}}, 2)],
+    )
+    async def test_quantity_from_message(self, body_extra, expected):
+        queue = _make_queue()
+        msg = _make_message({"event_type": "print_label", **body_extra})
+        await _process_message(
+            msg, {"print_label": _make_template()}, {"zpl-printer": _make_printer()}, queue, _engine(), None
+        )
+        assert queue.submit.await_args.args[0].quantity == expected
+
+    @pytest.mark.asyncio
+    async def test_fixed_template_quantity_wins(self):
+        template = _make_template()
+        template.quantity = 4
+        queue = _make_queue()
+        msg = _make_message({"event_type": "print_label", "quantity": 9})
+        await _process_message(msg, {"print_label": template}, {"zpl-printer": _make_printer()}, queue, _engine(), None)
+        assert queue.submit.await_args.args[0].quantity == 4
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quantity", [0, 1000, "lots", 1.5])
+    async def test_bad_quantity_is_discarded(self, quantity):
+        queue = _make_queue()
+        msg = _make_message({"event_type": "print_label", "quantity": quantity})
+        result = await _process_message(
+            msg, {"print_label": _make_template()}, {"zpl-printer": _make_printer()}, queue, _engine(), None
+        )
+        assert result is True
+        queue.submit.assert_not_awaited()
+
+
+class TestConsumerSupervision:
+    @pytest.mark.asyncio
+    async def test_all_retried_batch_waits_before_next_pull(self):
+        """An offline printer must not make the consumer pull in a tight loop."""
+        messages = [{"lease_id": "l1", "body": {"event_type": "print_label"}}]
+        pull = _make_http_response(200, json_body={"result": {"messages": messages}})
+        ack = _make_http_response(200)
+        session = _make_session(pull, ack)
+
+        with _patch_session(session), _patch_sleep() as mock_sleep:
+            with pytest.raises(asyncio.CancelledError):
+                await run_cloudflare_queue_consumer(
+                    _make_valid_config(),
+                    {"print_label": _make_template()},
+                    {"zpl-printer": _make_printer(online=False)},
+                    _make_queue(),
+                    _engine(),
+                    None,
+                )
+        mock_sleep.assert_called_once_with(5)
+        assert session.post.call_count == 2  # one pull, one ack, then the wait
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_does_not_kill_consumer(self):
+        """A non-network error (here a malformed pull) is logged and retried."""
+        bad = _make_http_response(200, json_body={"result": {"messages": []}})
+        bad.json = AsyncMock(side_effect=ValueError("not json"))
+        empty = _make_http_response(200, json_body={"result": {"messages": []}})
+        session = _make_session(bad, empty)
+
+        sleeps: list[float] = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+            if len(sleeps) == 2:
+                raise asyncio.CancelledError
+
+        with _patch_session(session), patch("labelable.integrations.cloudflare_queue.asyncio.sleep", fake_sleep):
+            with pytest.raises(asyncio.CancelledError):
+                await run_cloudflare_queue_consumer(_make_valid_config(), {}, {}, _make_queue(), _engine(), None)
+        assert sleeps == [1.0, 5]  # back-off after the error, then a normal empty poll
+
+    @pytest.mark.asyncio
+    async def test_ack_timeout_is_tolerated(self):
+        messages = [{"lease_id": "l1", "body": {"event_type": "noop"}}]
+        pull = _make_http_response(200, json_body={"result": {"messages": messages}})
+        ack = MagicMock()
+        ack.__aenter__ = AsyncMock(side_effect=TimeoutError())
+        ack.__aexit__ = AsyncMock(return_value=False)
+        empty = _make_http_response(200, json_body={"result": {"messages": []}})
+        session = _make_session(pull, ack, empty)
+
+        with _patch_session(session), _patch_sleep() as mock_sleep:
+            with pytest.raises(asyncio.CancelledError):
+                await run_cloudflare_queue_consumer(_make_valid_config(), {}, {}, _make_queue(), _engine(), None)
+        mock_sleep.assert_called_once_with(5)  # reached the next, empty poll

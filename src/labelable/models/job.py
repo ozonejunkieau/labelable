@@ -12,6 +12,31 @@ from pydantic import BaseModel, Field
 MAX_QUANTITY = 100
 
 
+def resolve_quantity(requested: object, fixed: int | None) -> int:
+    """Number of copies to print for a request.
+
+    A template with a fixed ``quantity`` always wins, whatever was asked for.
+    Otherwise the request's value must be a whole number from 1 to
+    MAX_QUANTITY; every job source applies the same rule.
+
+    Raises:
+        ValueError: If the requested quantity is out of range or not a number.
+    """
+    if fixed is not None:
+        return fixed
+    if requested is None:
+        return 1
+    if isinstance(requested, bool) or not isinstance(requested, int | float | str):
+        raise ValueError(f"quantity must be a whole number, not {requested!r}")
+    try:
+        as_float = float(requested)
+    except ValueError:
+        raise ValueError(f"quantity must be a whole number, not {requested!r}") from None
+    if not as_float.is_integer() or not 1 <= as_float <= MAX_QUANTITY:
+        raise ValueError(f"quantity must be a whole number from 1 to {MAX_QUANTITY}, not {requested!r}")
+    return int(as_float)
+
+
 class JobStatus(StrEnum):
     """Status of a print job."""
 
