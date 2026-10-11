@@ -226,3 +226,23 @@ class TestEPL2PrinterQuantity:
 
         # Should only print once
         assert len(printer.print_calls) == 1
+
+
+class TestEPL2QuantityDetectionAnchored:
+    """Only a P command on its own line counts as native quantity."""
+
+    @pytest.fixture
+    def printer(self) -> MockEPL2Printer:
+        return MockEPL2Printer(
+            PrinterConfig(name="e", type=PrinterType.EPL2, connection=TCPConnection(host="127.0.0.1", port=9100))
+        )
+
+    async def test_p_in_label_text_is_not_a_quantity(self, printer: MockEPL2Printer):
+        data = b'N\nA50,50,0,1,1,1,N,"Part P20"\nP1\n'
+        await printer.print_with_quantity(data, 5)
+        assert len(printer.print_calls) == 5
+
+    async def test_p_with_copies_argument_and_crlf(self, printer: MockEPL2Printer):
+        data = b'N\r\nA50,50,0,1,1,1,N,"x"\r\nP3,1\r\n'
+        await printer.print_with_quantity(data, 3)
+        assert len(printer.print_calls) == 1

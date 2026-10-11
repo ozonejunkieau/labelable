@@ -45,6 +45,11 @@ def image_to_epl2(image: Image.Image) -> bytes:
                     # EPL2: 0 bit = black (print), 1 bit = white (no print)
                     if pixels[pixel_idx] != 0:  # White pixel in PIL
                         byte_val |= 1 << (7 - bit)
+                else:
+                    # Padding past the image edge must be white too: a 0 bit
+                    # prints, which drew a line down the right of any label
+                    # whose width isn't a multiple of 8.
+                    byte_val |= 1 << (7 - bit)
             binary_data.append(byte_val)
 
     # Build EPL2 command

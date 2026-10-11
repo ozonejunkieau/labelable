@@ -91,6 +91,18 @@ class TestZPLConverter:
 class TestEPL2Converter:
     """Tests for EPL2 converter."""
 
+    def test_padding_past_image_width_is_white(self):
+        """A 0 bit prints in EPL2; padding bits must be 1 or they draw a line."""
+        from PIL import Image
+
+        from labelable.templates.converters.epl2 import image_to_epl2
+
+        width, height = 319, 2  # 40 mm at 203 dpi: not a multiple of 8
+        out = image_to_epl2(Image.new("1", (width, height), 1))  # all white
+        header_end = out.index(b",", out.index(b"GW") + len(b"GW0,0,40,2"))
+        payload = out[header_end + 1 : header_end + 1 + 40 * height]
+        assert payload == b"\xff" * (40 * height)
+
     def test_simple_8x8_pattern(self):
         """Test 8x8 test pattern converts correctly."""
         # Create 8x8 image with all black first row

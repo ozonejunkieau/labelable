@@ -189,9 +189,10 @@ class EPL2Printer(BasePrinter):
         """
         import re
 
-        # Check for P command with quantity > 1 (e.g., P2, P3, P10)
-        # Pattern: P followed by digits, where the number is > 1
-        match = re.search(rb"P(\d+)", data)
+        # Check for a P command with quantity > 1 (e.g. P2, P3,1). It must be
+        # a command on its own line: an unanchored search matched label text
+        # such as "Part P20" and silently printed one copy instead of N.
+        match = re.search(rb"(?m)^P(\d+)(?:,\d+)?\r?$", data)
         if match:
             qty_in_template = int(match.group(1))
             if qty_in_template > 1:
