@@ -743,3 +743,94 @@ class TestBridgeDaemonCleanup:
         daemon._session = None
         await daemon.cleanup()  # should not raise
         daemon.printer.disconnect.assert_called_once()
+
+
+def _resp(status: int, read: bytes = b"") -> AsyncMock:
+    resp = AsyncMock()
+    resp.status = status
+    resp.read = AsyncMock(return_value=read)
+    resp.text = AsyncMock(return_value="")
+    resp.__aenter__ = AsyncMock(return_value=resp)
+    resp.__aexit__ = AsyncMock(return_value=False)
+    return resp
+
+
+class TestUsbRecoveryAndApiKey:
+    async def test_print_failure_drops_usb_and_next_job_reconnects(self):
+        """After a replug the old handle is dead; the daemon must reconnect, not fail forever."""
+        printer = _make_mock_printer()
+        state = {"connected": True}
+        type(printer).is_connected = property(lambda self: state["connected"])
+
+        async def disconnect():
+            state["connected"] = False
+
+        async def connect():
+            state["connected"] = True
+
+        printer.disconnect = AsyncMock(side_effect=disconnect)
+        printer.connect = AsyncMock(side_effect=connect)
+        printer.print_raw = AsyncMock(side_effect=[OSError("[Errno 19] No such device"), None])
+
+        daemon = _make_daemon(printer)
+        daemon._registered_name = "test-bridge"
+        session = AsyncMock()
+        session.get = MagicMock(side_effect=[_resp(200, b"job1"), _resp(200, b"job2")])
+        session.post = MagicMock(side_effect=[_resp(200), _resp(200)])
+        daemon._session = session
+
+        await daemon.poll_and_print()
+        assert state["connected"] is False
+        assert session.post.call_args_list[0].kwargs["json"]["ok"] is False
+
+        await daemon.poll_and_print()
+        printer.connect.assert_awaited_once()
+        assert session.post.call_args_list[1].kwargs["json"]["ok"] is True
+
+    async def test_status_failure_drops_usb(self):
+        daemon = _make_daemon()
+        daemon._registered_name = "test-bridge"
+        daemon.printer._send = AsyncMock(side_effect=OSError("gone"))
+        session = AsyncMock()
+        session.post = MagicMock(return_value=_resp(200))
+        daemon._session = session
+        await daemon.report_status()
+        daemon.printer.disconnect.assert_awaited_once()
+        assert session.post.call_args.kwargs["json"]["online"] is False
+
+    async def test_api_key_sent_on_every_request(self):
+        daemon = BridgeDaemon(
+            printer=_make_mock_printer(),
+            serial_number="SN",
+            labelable_url="http://localhost:7979",
+            name="b",
+            api_key="secret",
+        )
+        with patch("labelable.cli.bridge.aiohttp.ClientSession") as session_cls:
+            session_cls.return_value.post = MagicMock(side_effect=RuntimeError("stop"))
+            await daemon.register()
+        session_cls.assert_called_once_with(headers={"X-API-Key": "secret"})
+
+    async def test_no_api_key_sends_no_header(self):
+        daemon = _make_daemon()
+        with patch("labelable.cli.bridge.aiohttp.ClientSession") as session_cls:
+            session_cls.return_value.post = MagicMock(side_effect=RuntimeError("stop"))
+            await daemon.register()
+        session_cls.assert_called_once_with(headers=None)
+
+    def test_api_key_flag_defaults_to_env(self, monkeypatch):
+        import sys
+
+        from labelable.cli import bridge as bridge_cli
+
+        monkeypatch.setenv("LABELABLE_API_KEY", "from-env")
+        monkeypatch.setattr(sys, "argv", ["labelable-bridge", "--url", "http://x"])
+        captured = {}
+
+        async def fake_run(args):
+            captured["key"] = args.api_key
+            return 0
+
+        monkeypatch.setattr(bridge_cli, "_run", fake_run)
+        assert bridge_cli.main() == 0
+        assert captured["key"] == "from-env"

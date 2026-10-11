@@ -11,6 +11,7 @@ Usage:
 import argparse
 import asyncio
 import logging
+import os
 import sys
 
 import aiohttp
@@ -40,8 +41,10 @@ class BridgeDaemon:
         serial_number: str,
         labelable_url: str,
         name: str,
+        api_key: str | None = None,
     ) -> None:
         self.printer = printer
+        self.api_key = api_key
         self.serial_number = serial_number
         self.labelable_url = labelable_url.rstrip("/")
         self.name = name
@@ -53,10 +56,35 @@ class BridgeDaemon:
     def _api_base(self) -> str:
         return f"{self.labelable_url}/api/v1/bridge/{self._registered_name}"
 
+    async def _ensure_usb(self) -> bool:
+        """Connect to the USB printer if needed.
+
+        After the printer powers off or is replugged the old handle is dead.
+        Failures drop the connection (see _drop_usb), so this reconnects on the
+        next status report or job instead of failing until a restart.
+        """
+        if self.printer.is_connected:
+            return True
+        try:
+            await self.printer.connect()
+            logger.info("USB printer reconnected")
+            return True
+        except Exception as e:
+            logger.warning(f"USB printer unavailable: {e}")
+            return False
+
+    async def _drop_usb(self) -> None:
+        try:
+            await self.printer.disconnect()
+        except Exception as e:
+            logger.debug(f"USB disconnect failed: {e}")
+
     async def register(self) -> bool:
         """Register with the Labelable server."""
         if not self._session:
-            self._session = aiohttp.ClientSession()
+            # The server's bridge routes require the API key when one is set
+            headers = {"X-API-Key": self.api_key} if self.api_key else None
+            self._session = aiohttp.ClientSession(headers=headers)
 
         payload = {
             "serial_number": self.serial_number,
@@ -96,6 +124,8 @@ class BridgeDaemon:
         errors: list[str] = []
 
         try:
+            if not await self._ensure_usb():
+                raise ConnectionError("USB printer not connected")
             await self.printer._send(CMD_STATUS_REQUEST)
             response = await self.printer._recv(size=STATUS_RESPONSE_LENGTH, timeout=3.0)
 
@@ -115,6 +145,7 @@ class BridgeDaemon:
                     logger.warning(f"Printer errors: {', '.join(errors)}")
         except Exception as e:
             logger.warning(f"USB status check failed: {e}")
+            await self._drop_usb()
 
         try:
             async with self._session.post(
@@ -168,14 +199,15 @@ class BridgeDaemon:
         error = None
 
         try:
-            if not self.printer.is_connected:
-                await self.printer.connect()
+            if not await self._ensure_usb():
+                raise ConnectionError("USB printer not connected")
             await self.printer.print_raw(data)
             ok = True
             logger.info("Print job completed")
         except Exception as e:
             error = str(e)
             logger.error(f"Print failed: {e}")
+            await self._drop_usb()
 
         # Report result
         try:
@@ -278,6 +310,7 @@ async def _run(args: argparse.Namespace) -> int:
         serial_number=serial_number,
         labelable_url=labelable_url,
         name=args.name,
+        api_key=args.api_key,
     )
 
     # Register with Labelable (retry until successful)
@@ -323,6 +356,12 @@ def main() -> int:
         type=str,
         default="ptouch-bridge",
         help="Printer name to register with Labelable (default: ptouch-bridge)",
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=os.environ.get("LABELABLE_API_KEY"),
+        help="Labelable api_key, if the server sets one (default: $LABELABLE_API_KEY)",
     )
     parser.add_argument(
         "--serial",

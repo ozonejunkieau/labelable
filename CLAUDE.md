@@ -133,8 +133,8 @@ printers:
     type: ptouch
     connection:
       type: usb
-      # vid: 0x04F9  # Brother vendor ID (default)
-      # pid: 0x20AF  # P710BT product ID (default)
+      # vendor_id: 0x04F9   # Brother vendor ID (default)
+      # product_id: 0x20AF  # P710BT product ID (default)
 
   # HA Integration connection (uses zebra_printer integration as transport)
   - name: ha-printer
@@ -748,6 +748,9 @@ uv run labelable-bridge --url http://labelable:7979 --serial MY-SERIAL-001
 
 # Verbose logging
 uv run labelable-bridge --url http://labelable:7979 --name rpi-ptouch -v
+
+# Server with api_key set (or export LABELABLE_API_KEY)
+uv run labelable-bridge --url http://labelable:7979 --api-key your-secret-key
 ```
 
 **How it works:**
@@ -755,13 +758,14 @@ uv run labelable-bridge --url http://labelable:7979 --name rpi-ptouch -v
 2. Registers with Labelable via `POST /api/v1/bridge/register`
 3. Polls for jobs every 2s (`GET /bridge/{name}/job`), reports status every 15s
 4. All communication is outbound - no ports need to be opened on the bridge machine
+5. If the USB printer powers off or is replugged, the failed job is reported and the daemon reconnects on the next status report or job
 
 **Status reporting:**
 The daemon reports extended printer status including `media_kind`, `tape_colour`, `text_colour`, `low_battery`, and `errors` list to the server on each status interval.
 
 **RPi deployment:**
 ```bash
-pip install "labelable[bridge]"
+uv tool install "git+https://github.com/ozonejunkieau/labelable"
 labelable-bridge --url http://ha-host:7979 --name rpi-ptouch
 ```
 
