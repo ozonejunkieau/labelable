@@ -13,6 +13,7 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
 from .coordinator import ZebraPrinterCoordinator
+from .matching import match_by_title
 from .payload import payload_bytes
 
 if TYPE_CHECKING:
@@ -74,18 +75,22 @@ def get_coordinator_for_device(hass: HomeAssistant, device_id: str) -> ZebraPrin
             if entry_id in hass.data.get(DOMAIN, {}):
                 return hass.data[DOMAIN][entry_id]
 
-    # Fallback: search by matching device name or config entry title
-    # This handles the case where device_id is an entity name pattern
-    for _entry_id, coordinator in hass.data.get(DOMAIN, {}).items():
-        if not isinstance(coordinator, ZebraPrinterCoordinator):
-            continue
-
-        # Check if the config entry title matches
-        entry_title = coordinator.config_entry.title.lower().replace(" ", "_").replace("-", "_")
-        device_id_normalized = device_id.lower().replace(" ", "_").replace("-", "_")
-
-        if entry_title == device_id_normalized or device_id_normalized in entry_title:
-            return coordinator
+    # Fallback: match the config entry title. This handles device_id given as
+    # an entity name pattern (e.g. "my_printer" from sensor.my_printer_language)
+    coordinators = {
+        entry_id: coordinator
+        for entry_id, coordinator in hass.data.get(DOMAIN, {}).items()
+        if isinstance(coordinator, ZebraPrinterCoordinator)
+    }
+    try:
+        entry_id = match_by_title(
+            {entry_id: coordinator.config_entry.title for entry_id, coordinator in coordinators.items()},
+            device_id,
+        )
+    except ValueError as err:
+        raise HomeAssistantError(str(err)) from err
+    if entry_id is not None:
+        return coordinators[entry_id]
 
     raise HomeAssistantError(f"No Zebra printer found for device {device_id}")
 

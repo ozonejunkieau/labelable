@@ -501,3 +501,33 @@ class TestHABinaryPayload:
         with pytest.raises(ConnectionError, match="integration updated"):
             await printer._send_via_ha(BINARY_EPL2)
         assert session.post.call_count == 1
+
+
+def _load_matching_module():
+    path = Path(__file__).parent.parent / "custom_components" / "zebra_printer" / "matching.py"
+    spec = importlib.util.spec_from_file_location("zebra_printer_matching", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestDeviceNameMatching:
+    TITLES = {"e1": "Office Printer", "e2": "Garage Printer", "e3": "Shed"}
+
+    def test_exact_match_wins(self):
+        assert _load_matching_module().match_by_title(self.TITLES, "office_printer") == "e1"
+
+    def test_exact_match_beats_partial(self):
+        titles = {"e1": "Printer Two", "e2": "Printer"}
+        assert _load_matching_module().match_by_title(titles, "printer") == "e2"
+
+    def test_unique_partial_match_accepted(self):
+        assert _load_matching_module().match_by_title(self.TITLES, "garage") == "e2"
+
+    def test_ambiguous_partial_match_refused(self):
+        with pytest.raises(ValueError, match="more than one"):
+            _load_matching_module().match_by_title(self.TITLES, "printer")
+
+    def test_no_match(self):
+        assert _load_matching_module().match_by_title(self.TITLES, "kitchen") is None
