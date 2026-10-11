@@ -14,6 +14,7 @@ from fastui.events import GoToEvent, PageEvent
 from pydantic import BaseModel, Field
 from starlette.responses import HTMLResponse
 
+from labelable.models.job import MAX_QUANTITY as MAX_UI_QUANTITY
 from labelable.models.template import EngineType, FieldType
 from labelable.printers import dpi_mismatch_warning
 
@@ -888,18 +889,10 @@ async def submit_print(
 
     # Parse form data directly from request
     form_raw = await request.form()
-    form_data: dict[str, Any] = {}
-    for key, value in form_raw.items():
-        form_data[key] = value
-
-    # Extract printer (from query param or form) and quantity
-    printer_name = printer or form_data.pop("printer", None)
-    # Use fixed quantity from template if set, otherwise from form
-    if template.quantity is not None:
-        quantity = template.quantity
-        form_data.pop("quantity", None)  # Remove from form data if present
-    else:
-        quantity = int(form_data.pop("quantity", 1))
+    printer_name = printer or form_raw.get("printer")
+    form_data, quantity, form_error = _parse_print_form(form_raw, template)
+    if form_error:
+        return _form_error_page(template_name, form_error)
 
     # Populate USER fields from request context
     current_user = _resolve_user(request)
@@ -910,7 +903,7 @@ async def submit_print(
     # Add quantity to context for template use (e.g., "1 of {{ quantity }}")
     form_data["quantity"] = quantity
 
-    if not printer_name or printer_name not in printers:
+    if not printer_name or printer_name not in printers or printer_name not in template.supported_printers:
         return _page_wrapper(
             c.Heading(text="Error", level=2),
             c.Paragraph(text="Invalid printer selected."),
@@ -956,29 +949,97 @@ async def submit_print(
         rendered_content=rendered,
     )
 
-    is_online = await printer_obj.is_online()
     await queue.submit(job)
 
-    if is_online:
-        message = f"Label sent to printer '{printer_name}'."
-    else:
-        message = f"Label queued. Printer '{printer_name}' is currently offline."
+    # Navigate to the job page rather than rendering a confirmation here: the
+    # preview flow submits from a hidden form, and anything rendered in its
+    # place is invisible, so users saw no feedback and could print twice.
+    return [c.FireEvent(event=GoToEvent(url=f"/jobs/{job.id}"))]
 
-    return _page_wrapper(
-        c.Heading(text="Print Submitted", level=2),
-        c.Paragraph(text=message),
-        c.Paragraph(text=f"Job ID: {job.id}"),
-        c.Paragraph(text=f"Quantity: {quantity}"),
-        c.Link(
-            components=[c.Text(text="Print another")],
-            on_click=GoToEvent(url=f"/print/{template_name}"),
-        ),
-        c.Link(
-            components=[c.Text(text="<- Back to templates")],
-            on_click=GoToEvent(url="/"),
-        ),
-        title="Print Submitted - Labelable",
+
+class JobFieldRow(BaseModel):
+    """Row model for the job page's field values table."""
+
+    field: str
+    value: str
+
+
+# How each job status reads on the job page
+JOB_STATUS_TEXT = {
+    "pending": "Waiting in the print queue",
+    "printing": "Printing",
+    "completed": "Printed",
+    "failed": "Failed",
+    "expired": "Expired - the printer was unavailable for too long",
+}
+
+
+@router.get("/api/jobs/{job_id}", response_model=FastUI, response_model_exclude_none=True)
+async def job_page(job_id: str) -> list[AnyComponent]:
+    """Show a print job's status and the values it was printed with."""
+    queue = _app_state.get("queue")
+    job = queue.get_job(job_id) if queue else None
+    if job is None:
+        return _page_wrapper(
+            c.Heading(text="Job not found", level=2),
+            c.Paragraph(text="Jobs are kept in memory and are lost when Labelable restarts."),
+            c.Link(components=[c.Text(text="<- Back to templates")], on_click=GoToEvent(url="/")),
+            title="Job not found - Labelable",
+        )
+
+    status_text = JOB_STATUS_TEXT.get(str(job.status), str(job.status))
+    details = [f"Printer: {job.printer_name}", f"Quantity: {job.quantity}"]
+    if str(job.status) == "pending":
+        printer = _app_state.get("printers", {}).get(job.printer_name)
+        if printer is not None and printer.get_cached_online_status() is False:
+            details.append("The printer is offline; the job will print when it comes back.")
+
+    rows = [
+        JobFieldRow(
+            field=name.replace("_", " ").title(),
+            # Show list fields one item per line's worth, compactly
+            value=", ".join(line.strip() for line in str(value).splitlines() if line.strip())
+            if isinstance(value, str) and "\n" in value
+            else str(value),
+        )
+        for name, value in job.data.items()
+        if name != "quantity"
+    ]
+
+    components: list[AnyComponent] = [
+        c.Heading(text=job.template_name, level=2),
+        c.Heading(text=status_text, level=4),
+        *[c.Paragraph(text=line) for line in details],
+    ]
+    if job.error_message:
+        components.append(c.Paragraph(text=f"Error: {job.error_message}", class_name="text-danger"))
+    if rows:
+        components.append(
+            c.Table(
+                data=rows,
+                columns=[DisplayLookup(field="field", title="Field"), DisplayLookup(field="value", title="Value")],
+            )
+        )
+    components.append(
+        c.Div(
+            class_name="d-flex gap-3 mt-3",
+            components=[
+                c.Link(
+                    components=[c.Text(text="Refresh")],
+                    on_click=GoToEvent(url=f"/jobs/{job.id}", query={"t": str(int(datetime.now().timestamp()))}),
+                    class_name="btn btn-secondary",
+                ),
+                c.Link(
+                    components=[c.Text(text="Print another")],
+                    on_click=GoToEvent(url=f"/print/{job.template_name}"),
+                    class_name="btn btn-primary",
+                ),
+                c.Link(components=[c.Text(text="<- Back to templates")], on_click=GoToEvent(url="/")),
+            ],
+        )
     )
+    components.append(c.Paragraph(text=f"Job ID: {job.id}", class_name="text-muted small mt-3"))
+    return _page_wrapper(*components, title=f"Print job - {job.template_name}")
 
 
 @router.post(
@@ -1008,19 +1069,12 @@ async def preview_label(
 
     # Parse form data
     form_raw = await request.form()
-    form_data: dict[str, Any] = {}
-    for key, value in form_raw.items():
-        form_data[key] = value
+    printer_name = printer or form_raw.get("printer")
+    form_data, quantity, form_error = _parse_print_form(form_raw, template)
+    if form_error:
+        return _form_error_page(template_name, form_error)
 
-    # Extract printer name and quantity
-    printer_name = printer or form_data.pop("printer", None)
-    if template.quantity is not None:
-        quantity = template.quantity
-        form_data.pop("quantity", None)
-    else:
-        quantity = int(form_data.pop("quantity", 1))
-
-    if not printer_name or printer_name not in printers:
+    if not printer_name or printer_name not in printers or printer_name not in template.supported_printers:
         return _page_wrapper(
             c.Heading(text="Error", level=2),
             c.Paragraph(text="Invalid printer selected."),
@@ -1121,6 +1175,65 @@ async def preview_label(
     )
 
 
+def _form_error_page(template_name: str, message: str) -> list[AnyComponent]:
+    """Error page for a print form that could not be parsed."""
+    return _page_wrapper(
+        c.Heading(text="Error", level=2),
+        c.Paragraph(text=message),
+        c.Link(
+            components=[c.Text(text="<- Try again")],
+            on_click=GoToEvent(url=f"/print/{template_name}"),
+        ),
+    )
+
+
+def _parse_print_form(form_raw: Any, template: Any) -> tuple[dict[str, Any], int, str | None]:
+    """Turn a submitted print form into template data and a quantity.
+
+    The browser posts the form's FormData as-is, which differs from what the
+    template expects in three ways:
+
+    - An unchecked checkbox is simply absent. Every boolean field is rendered
+      as a checkbox, so absent means False - not "use the default", which made
+      a ``default: true`` field impossible to switch off.
+    - An empty number input arrives as ``""``. It is dropped so the field's
+      default (or the required-field error) applies, instead of ``int("")``.
+    - Quantity may be blank or junk if the user cleared the box.
+
+    Returns:
+        (form data, quantity, error message or None)
+    """
+    form_data: dict[str, Any] = dict(form_raw.items())
+    form_data.pop("printer", None)
+
+    for field in template.fields:
+        if field.type == FieldType.BOOLEAN:
+            form_data[field.name] = field.name in form_data and str(form_data[field.name]).lower() in (
+                "true",
+                "1",
+                "yes",
+                "on",
+            )
+        elif field.type in (FieldType.INTEGER, FieldType.FLOAT) and form_data.get(field.name) == "":
+            del form_data[field.name]
+
+    raw_quantity = form_data.pop("quantity", None)
+    if template.quantity is not None:
+        return form_data, template.quantity, None
+    if raw_quantity in (None, ""):
+        return form_data, 1, None
+    try:
+        as_float = float(raw_quantity)
+    except (TypeError, ValueError):
+        as_float = None
+    if as_float is None or not as_float.is_integer():
+        return form_data, 1, f"Quantity must be a whole number, not '{raw_quantity}'."
+    quantity = int(as_float)
+    if not 1 <= quantity <= MAX_UI_QUANTITY:
+        return form_data, quantity, f"Quantity must be between 1 and {MAX_UI_QUANTITY}."
+    return form_data, quantity, None
+
+
 def _create_hidden_form_model(hidden_fields: dict[str, Any], quantity: int) -> type[BaseModel]:
     """Create a Pydantic model with pre-filled field values for the print form.
 
@@ -1151,7 +1264,13 @@ def _create_hidden_form_model(hidden_fields: dict[str, Any], quantity: int) -> t
         elif isinstance(value, float):
             fields[name] = (float, Field(default=value, title=title))
         else:
-            fields[name] = (str, Field(default=str(value) if value else "", title=title))
+            text = str(value) if value else ""
+            # A plain <input> strips CR/LF from its value, which collapsed a
+            # batch list ("GND\nVCC\nSDA") into one label between preview and
+            # print. A <textarea> keeps them. FastUI fills a textarea from
+            # "initial", not from the default.
+            extra = {"format": "textarea", "initial": text} if "\n" in text or "\r" in text else None
+            fields[name] = (str, Field(default=text, title=title, json_schema_extra=extra))
 
     # Create dynamic model
     annotations = {k: v[0] for k, v in fields.items()}
@@ -1214,7 +1333,12 @@ def _create_form_model(template, compatible_printers: list[tuple[str, str]] | No
 
         # Add asterisk for required fields, include description
         base_title = field.name.replace("_", " ").title()
-        extra_schema: dict[str, Any] | None = {"format": "textarea"} if field.type == FieldType.LIST else None
+        extra_schema: dict[str, Any] | None = None
+        if field.type == FieldType.LIST:
+            # FastUI fills a textarea from "initial", not from the default
+            extra_schema = {"format": "textarea"}
+            if field.default is not None:
+                extra_schema["initial"] = str(field.default)
         if field.required and field.default is None:
             title = f"{base_title} *"
             fields[field.name] = (

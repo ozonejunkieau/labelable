@@ -7,6 +7,10 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+# Upper bound on copies per request, shared by every job source. Quantity is
+# looped on most transports, so an unbounded value ties a printer up for hours.
+MAX_QUANTITY = 100
+
 
 class JobStatus(StrEnum):
     """Status of a print job."""
