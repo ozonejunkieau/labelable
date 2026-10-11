@@ -889,7 +889,8 @@ async def submit_print(
 
     # Parse form data directly from request
     form_raw = await request.form()
-    printer_name = printer or form_raw.get("printer")
+    form_printer = form_raw.get("printer")
+    printer_name = printer or (form_printer if isinstance(form_printer, str) else None)
     form_data, quantity, form_error = _parse_print_form(form_raw, template)
     if form_error:
         return _form_error_page(template_name, form_error)
@@ -1069,7 +1070,8 @@ async def preview_label(
 
     # Parse form data
     form_raw = await request.form()
-    printer_name = printer or form_raw.get("printer")
+    form_printer = form_raw.get("printer")
+    printer_name = printer or (form_printer if isinstance(form_printer, str) else None)
     form_data, quantity, form_error = _parse_print_form(form_raw, template)
     if form_error:
         return _form_error_page(template_name, form_error)
@@ -1269,7 +1271,9 @@ def _create_hidden_form_model(hidden_fields: dict[str, Any], quantity: int) -> t
             # batch list ("GND\nVCC\nSDA") into one label between preview and
             # print. A <textarea> keeps them. FastUI fills a textarea from
             # "initial", not from the default.
-            extra = {"format": "textarea", "initial": text} if "\n" in text or "\r" in text else None
+            extra: dict[str, Any] | None = (
+                {"format": "textarea", "initial": text} if "\n" in text or "\r" in text else None
+            )
             fields[name] = (str, Field(default=text, title=title, json_schema_extra=extra))
 
     # Create dynamic model
