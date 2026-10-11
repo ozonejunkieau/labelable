@@ -179,3 +179,72 @@ class TestUpdateTemplateOnDisk:
         with pytest.raises(TemplateCRUDError) as exc_info:
             update_template_on_disk("nonexistent", template, tmp_path, templates_dict)
         assert exc_info.value.status_code == 404
+
+
+class TestCrudNaming:
+    def test_update_rejects_body_name_mismatch(self, tmp_path: Path):
+        templates = {"foo": _make_template("foo")}
+        (tmp_path / "foo.yaml").write_text(template_to_yaml(templates["foo"]))
+        with pytest.raises(TemplateCRUDError) as exc:
+            update_template_on_disk("foo", _make_template("bar"), tmp_path, templates)
+        assert exc.value.status_code == 400
+        assert not (tmp_path / "bar.yaml").exists()
+
+    def test_update_writes_back_to_the_file_it_came_from(self, tmp_path: Path):
+        """x.yaml holding template 'y' is updated in place, not duplicated as y.yaml."""
+        original = _make_template("y")
+        (tmp_path / "x.yaml").write_text(template_to_yaml(original))
+        updated = original.model_copy(update={"description": "changed"})
+        update_template_on_disk("y", updated, tmp_path, {"y": original})
+        assert not (tmp_path / "y.yaml").exists()
+        assert yaml.safe_load((tmp_path / "x.yaml").read_text())["description"] == "changed"
+
+    def test_create_does_not_overwrite_a_file_that_failed_to_load(self, tmp_path: Path):
+        (tmp_path / "broken.yaml").write_text("name: broken\nthis: [is not loaded\n")
+        with pytest.raises(TemplateCRUDError) as exc:
+            create_template_on_disk(_make_template("broken"), tmp_path, {})
+        assert exc.value.status_code == 409
+        assert "did not load" in exc.value.message
+        assert "is not loaded" in (tmp_path / "broken.yaml").read_text()
+
+
+class TestCrudFontValidation:
+    """API-created image templates get the same font check as startup."""
+
+    def _image_template(self, font: str) -> TemplateConfig:
+        from labelable.models.template import BoundingBox, EngineType, TextElement
+
+        return TemplateConfig(
+            name="img",
+            engine=EngineType.IMAGE,
+            dimensions=LabelDimensions(width_mm=40, height_mm=28),
+            supported_printers=["zpl"],
+            elements=[
+                TextElement(
+                    type="text",
+                    static_text="x",
+                    bounds=BoundingBox(x_mm=0, y_mm=0, width_mm=10, height_mm=5),
+                    font=font,
+                )
+            ],
+        )
+
+    def test_create_rejects_missing_font(self, tmp_path: Path):
+        fonts = tmp_path / "fonts"
+        fonts.mkdir()
+        with pytest.raises(TemplateCRUDError) as exc:
+            create_template_on_disk(self._image_template("NoSuchFont-Regular"), tmp_path, {}, fonts_dir=fonts)
+        assert exc.value.status_code == 400
+        assert "NoSuchFont-Regular" in exc.value.message
+        assert not (tmp_path / "img.yaml").exists()
+
+    def test_create_accepts_available_font(self, tmp_path: Path):
+        fonts = Path(__file__).parent.parent / "templates" / "fonts"
+        templates: dict = {}
+        create_template_on_disk(self._image_template("BarlowSemiCondensed-Bold"), tmp_path, templates, fonts_dir=fonts)
+        assert "img" in templates
+
+    def test_no_fonts_dir_skips_check(self, tmp_path: Path):
+        templates: dict = {}
+        create_template_on_disk(self._image_template("NoSuchFont-Regular"), tmp_path, templates)
+        assert "img" in templates

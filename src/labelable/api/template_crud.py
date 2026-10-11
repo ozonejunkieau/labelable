@@ -73,10 +73,21 @@ def _write_file(path: Path, content: str) -> None:
         os.close(fd)
 
 
+def _check_fonts(template: TemplateConfig, fonts_dir: Path | None, download_google_fonts: bool) -> None:
+    from labelable.config import missing_template_fonts
+
+    missing = missing_template_fonts(template, fonts_dir, download_google_fonts)
+    if missing:
+        hint = "" if download_google_fonts else " Enable 'download_google_fonts: true' to fetch Google Fonts."
+        raise TemplateCRUDError(f"Template '{template.name}' needs missing fonts: {', '.join(missing)}.{hint}", 400)
+
+
 def create_template_on_disk(
     template: TemplateConfig,
     templates_path: Path,
     templates_dict: dict[str, TemplateConfig],
+    fonts_dir: Path | None = None,
+    download_google_fonts: bool = False,
 ) -> None:
     """Write a new template to disk and add it to the in-memory dict.
 
@@ -86,6 +97,16 @@ def create_template_on_disk(
         raise TemplateCRUDError(f"Template '{template.name}' already exists", 409)
 
     target = resolve_template_path(template.name, templates_path)
+    if target.exists():
+        # The file is there but the template isn't loaded: it was skipped at
+        # startup (bad YAML, missing fonts). Overwriting it would silently
+        # destroy the user's file.
+        raise TemplateCRUDError(
+            f"A file for template '{template.name}' already exists but did not load; "
+            "check the template warnings, fix or remove the file, then retry",
+            409,
+        )
+    _check_fonts(template, fonts_dir, download_google_fonts)
     templates_path.mkdir(parents=True, exist_ok=True)
     _write_file(target, template_to_yaml(template))
     templates_dict[template.name] = template
@@ -96,6 +117,8 @@ def update_template_on_disk(
     template: TemplateConfig,
     templates_path: Path,
     templates_dict: dict[str, TemplateConfig],
+    fonts_dir: Path | None = None,
+    download_google_fonts: bool = False,
 ) -> None:
     """Overwrite an existing template on disk and update the in-memory dict.
 
@@ -103,7 +126,36 @@ def update_template_on_disk(
     """
     if name not in templates_dict:
         raise TemplateCRUDError(f"Template '{name}' not found", 404)
+    if template.name != name:
+        # Keyed by the URL name but saved with the body's name, the template
+        # vanished from the UI and could overwrite another one on reload
+        raise TemplateCRUDError(
+            f"Template body name '{template.name}' does not match '{name}'; renaming is not supported",
+            400,
+        )
+    _check_fonts(template, fonts_dir, download_google_fonts)
 
-    target = resolve_template_path(name, templates_path)
+    target = _existing_template_file(name, templates_path) or resolve_template_path(name, templates_path)
     _write_file(target, template_to_yaml(template))
     templates_dict[name] = template
+
+
+def _existing_template_file(name: str, templates_path: Path) -> Path | None:
+    """The file a loaded template came from.
+
+    Templates are keyed by the ``name`` inside the file, not the filename, so
+    ``x.yaml`` may hold template ``y``. Writing ``y.yaml`` on update would
+    leave two files defining the same template.
+    """
+    validate_template_name(name)
+    conventional = templates_path / f"{name}.yaml"
+    if conventional.exists():
+        return conventional.resolve()
+    for candidate in sorted(templates_path.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(candidate.read_text())
+        except (OSError, yaml.YAMLError):
+            continue
+        if isinstance(data, dict) and data.get("name") == name:
+            return candidate.resolve()
+    return None

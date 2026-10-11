@@ -3,6 +3,7 @@
 import logging
 import secrets
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -22,6 +23,14 @@ router = APIRouter(prefix="/api/v1", tags=["api"])
 _app_state: dict[str, Any] = {}
 
 
+def _font_settings() -> dict[str, Any]:
+    """Font settings for template create/update, as startup uses them."""
+    return {
+        "fonts_dir": _app_state.get("fonts_dir"),
+        "download_google_fonts": _app_state.get("download_google_fonts", False),
+    }
+
+
 def set_app_state(
     printers: dict,
     templates: dict,
@@ -30,6 +39,8 @@ def set_app_state(
     image_engine: Any = None,
     api_key: str | None = None,
     templates_path: Any = None,
+    fonts_dir: Path | None = None,
+    download_google_fonts: bool = False,
 ) -> None:
     """Set application state references for the routes."""
     _app_state["printers"] = printers
@@ -39,6 +50,8 @@ def set_app_state(
     _app_state["image_engine"] = image_engine
     _app_state["api_key"] = api_key
     _app_state["templates_path"] = templates_path
+    _app_state["fonts_dir"] = fonts_dir
+    _app_state["download_google_fonts"] = download_google_fonts
 
 
 async def verify_api_key(request: Request) -> None:
@@ -216,7 +229,7 @@ async def create_template(template: TemplateConfig) -> TemplateCreateResponse:
         raise HTTPException(status_code=500, detail="Templates path not configured")
 
     try:
-        create_template_on_disk(template, templates_path, templates)
+        create_template_on_disk(template, templates_path, templates, **_font_settings())
     except TemplateCRUDError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
@@ -243,7 +256,7 @@ async def update_template(name: str, template: TemplateConfig) -> TemplateCreate
         raise HTTPException(status_code=500, detail="Templates path not configured")
 
     try:
-        update_template_on_disk(name, template, templates_path, templates)
+        update_template_on_disk(name, template, templates_path, templates, **_font_settings())
     except TemplateCRUDError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 

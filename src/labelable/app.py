@@ -148,6 +148,8 @@ async def lifespan(app: FastAPI):
         _image_engine,
         api_key=_config.api_key,
         templates_path=templates_path,
+        fonts_dir=fonts_path,
+        download_google_fonts=_config.download_google_fonts,
     )
     ui_routes.set_app_state(
         _printers,
@@ -201,6 +203,8 @@ async def lifespan(app: FastAPI):
                     _image_engine,
                     api_key=_config.api_key,
                     templates_path=templates_path,
+                    fonts_dir=fonts_path,
+                    download_google_fonts=_config.download_google_fonts,
                 )
                 mcp = create_mcp_server()
 

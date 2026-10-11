@@ -153,6 +153,27 @@ def _validate_template_fonts(
     return missing
 
 
+def missing_template_fonts(
+    template: TemplateConfig, fonts_dir: Path | None, download_google_fonts: bool = False
+) -> list[str]:
+    """Fonts an image template needs that aren't available, after an optional download.
+
+    The same check load_templates applies at startup, for templates created
+    or updated through the API, which used to skip it and then render with
+    the PIL fallback font.
+    """
+    from labelable.models.template import EngineType
+
+    if template.engine != EngineType.IMAGE or not fonts_dir:
+        return []
+    if download_google_fonts:
+        fonts = _extract_fonts_from_template(template)
+        if fonts:
+            fonts_dir.mkdir(parents=True, exist_ok=True)
+            _download_missing_fonts(fonts, fonts_dir)
+    return _validate_template_fonts(template, fonts_dir)
+
+
 def load_templates(
     templates_dir: Path,
     fonts_dir: Path | None = None,

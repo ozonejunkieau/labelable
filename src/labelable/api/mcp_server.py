@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 _app_state: dict[str, Any] = {}
 
 
+def _font_settings() -> dict[str, Any]:
+    """Font settings for template create/update, as startup uses them."""
+    return {
+        "fonts_dir": _app_state.get("fonts_dir"),
+        "download_google_fonts": _app_state.get("download_google_fonts", False),
+    }
+
+
 def set_app_state(
     printers: dict,
     templates: dict,
@@ -26,6 +34,8 @@ def set_app_state(
     image_engine: Any = None,
     api_key: str | None = None,
     templates_path: Path | None = None,
+    fonts_dir: Path | None = None,
+    download_google_fonts: bool = False,
 ) -> None:
     """Set application state references for the MCP tools."""
     _app_state["printers"] = printers
@@ -35,6 +45,8 @@ def set_app_state(
     _app_state["image_engine"] = image_engine
     _app_state["api_key"] = api_key
     _app_state["templates_path"] = templates_path
+    _app_state["fonts_dir"] = fonts_dir
+    _app_state["download_google_fonts"] = download_google_fonts
 
 
 def create_mcp_server() -> MCPServer:
@@ -220,7 +232,7 @@ def create_mcp_server() -> MCPServer:
             return json.dumps({"error": f"Invalid template schema: {e}"})
 
         try:
-            create_template_on_disk(template, templates_path, templates)
+            create_template_on_disk(template, templates_path, templates, **_font_settings())
         except TemplateCRUDError as e:
             return json.dumps({"error": e.message})
 
@@ -258,7 +270,7 @@ def create_mcp_server() -> MCPServer:
             return json.dumps({"error": f"Invalid template schema: {e}"})
 
         try:
-            update_template_on_disk(name, template, templates_path, templates)
+            update_template_on_disk(name, template, templates_path, templates, **_font_settings())
         except TemplateCRUDError as e:
             return json.dumps({"error": e.message})
 
