@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 from pydantic import ValidationError
 
@@ -15,7 +16,7 @@ from labelable.models.printer import (
 from labelable.models.template import EngineType, LabelDimensions, TemplateConfig
 from labelable.printers import create_printer, dpi_mismatch_warning
 from labelable.printers.base import PrinterError
-from labelable.printers.http_bridge import RETRY_ATTEMPTS
+from labelable.printers.http_bridge import POST_TIMEOUT, RETRY_ATTEMPTS
 from labelable.printers.zebra_net import JOIN_LIMIT_BYTES, TOKEN_ENV_VAR, ZebraNetPrinter
 
 # Captured from a real zebra-bridge with a GX420t attached
@@ -94,7 +95,10 @@ class FakeSession:
         self.post_calls.append((url, kwargs))
         if not self._post_responses:
             raise AssertionError(f"unexpected POST {url}")
-        return self._post_responses.pop(0)
+        resp = self._post_responses.pop(0)
+        if isinstance(resp, BaseException):
+            raise resp
+        return resp
 
     async def close(self) -> None:
         self.closed = True
@@ -409,3 +413,89 @@ class TestDpiWarning:
     def test_silent_when_dpi_unknown(self):
         printer = ZebraNetPrinter(_make_config())
         assert dpi_mismatch_warning(printer, _template(203)) is None
+
+
+# ---------------------------------------------------------------------------
+# Robustness (audit follow-ups)
+# ---------------------------------------------------------------------------
+
+
+class TestRobustness:
+    @pytest.mark.asyncio
+    async def test_busy_with_own_job_reads_online_without_polling(self):
+        session = FakeSession(get_responses=[_make_response(200, _status(state="printing"))])
+        printer = _printer(session)
+        printer._printing = True
+        assert await printer.is_online() is True
+        assert session.get_calls == []
+
+    @pytest.mark.asyncio
+    async def test_connection_error_after_admission_is_not_resent(self):
+        """A dropped connection after the device took the job must not print it twice."""
+        session = FakeSession(
+            get_responses=[
+                _make_response(200, _status()),  # before submit
+                _make_response(200, _status(state="printing")),  # admission check
+                _make_response(200, _status(jobs_printed=1)),
+            ],
+            post_responses=[aiohttp.ServerDisconnectedError()],
+        )
+        with _no_sleep():
+            await _printer(session).print_raw(ZPL)
+        assert len(session.post_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_connection_error_before_admission_is_retried(self):
+        session = FakeSession(
+            get_responses=[
+                _make_response(200, _status()),  # before submit
+                _make_response(200, _status()),  # admission check: nothing happened
+                _make_response(200, _status(jobs_printed=1)),
+            ],
+            post_responses=[aiohttp.ClientConnectionError("reset"), _make_response(202)],
+        )
+        with _no_sleep():
+            await _printer(session).print_raw(ZPL)
+        assert len(session.post_calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_connection_errors_exhaust_retries(self):
+        session = FakeSession(
+            get_responses=[_make_response(200, _status())],
+            post_responses=[TimeoutError() for _ in range(RETRY_ATTEMPTS)],
+        )
+        with _no_sleep():
+            with pytest.raises(PrinterError, match="unreachable after"):
+                await _printer(session).print_raw(ZPL)
+
+    @pytest.mark.asyncio
+    async def test_post_has_no_total_timeout(self):
+        """A large job's upload must not be cut off by the 10 s request timeout."""
+        session = FakeSession(
+            get_responses=[_make_response(200, _status()), _make_response(200, _status(jobs_printed=1))],
+            post_responses=[_make_response(202)],
+        )
+        with _no_sleep():
+            await _printer(session).print_raw(ZPL)
+        timeout = session.post_calls[0][1]["timeout"]
+        assert timeout is POST_TIMEOUT
+        assert timeout.total is None and timeout.sock_read
+
+    @pytest.mark.asyncio
+    async def test_fault_after_job_printed_is_success(self):
+        """Paper out on the *next* label must not fail a job that printed."""
+        session = FakeSession(
+            get_responses=[
+                _make_response(200, _status()),
+                _make_response(200, _status(jobs_printed=1, errors=["paper_out"])),
+            ],
+            post_responses=[_make_response(202)],
+        )
+        with _no_sleep():
+            await _printer(session).print_raw(ZPL)
+
+    @pytest.mark.asyncio
+    async def test_zero_quantity_prints_nothing(self):
+        session = FakeSession()
+        await _printer(session).print_with_quantity(ZPL, 0)
+        assert session.post_calls == []

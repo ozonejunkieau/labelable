@@ -156,7 +156,9 @@ class ZebraNetPrinter(HTTPBridgePrinter):
         formats per job, and one job means one completion wait rather than
         one per copy. Too large to join, it falls back to one job per copy.
         """
-        if b"^PQ" in data or quantity <= 1:
+        if quantity < 1:
+            return  # Same as the other transports: zero copies prints nothing
+        if b"^PQ" in data or quantity == 1:
             await self.print_raw(data)
         elif len(data) * quantity <= JOIN_LIMIT_BYTES:
             await self.print_raw(data * quantity)

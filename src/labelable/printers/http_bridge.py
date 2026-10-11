@@ -45,6 +45,11 @@ RETRY_DELAY = 2.0
 # Completion polling after a 202 admission
 COMPLETION_POLL_INTERVAL = 1.0
 
+# POST /print gets no total timeout: a 1 MB ZPL job over a slow link can take
+# longer than REQUEST_TIMEOUT just to upload. Connecting and waiting for the
+# reply after the upload are still bounded.
+POST_TIMEOUT = aiohttp.ClientTimeout(total=None, connect=REQUEST_TIMEOUT, sock_read=REQUEST_TIMEOUT)
+
 BridgeConnection = PTouchBridgeConnection | ZebraBridgeConnection
 
 
@@ -170,7 +175,15 @@ class HTTPBridgePrinter(BasePrinter):
     # ------------------------------------------------------------------
 
     async def is_online(self) -> bool:
-        """Refresh status and report whether the device would accept a job."""
+        """Refresh status and report whether the device would accept a job.
+
+        While this transport's own job is running the device reports
+        ``printing``, which would cache the printer as offline and make the
+        UI report a busy printer as offline. It is online; it is just busy.
+        """
+        if self._printing:
+            return True
+
         status = await self._fetch_status()
         if status is None:
             self._connected = False
@@ -211,15 +224,31 @@ class HTTPBridgePrinter(BasePrinter):
 
         headers = {**request_kwargs.pop("headers", {}), "Authorization": f"Bearer {token}"}
         last_error = "unknown error"
+        before = self._job_counters()
 
         for attempt in range(1, RETRY_ATTEMPTS + 1):
-            async with self._session.post(
-                f"{self.base_url}/print",
-                headers=headers,
-                **request_kwargs,
-            ) as resp:
-                status_code = resp.status
-                reason = await self._error_reason(resp)
+            try:
+                async with self._session.post(
+                    f"{self.base_url}/print",
+                    headers=headers,
+                    timeout=POST_TIMEOUT,
+                    **request_kwargs,
+                ) as resp:
+                    status_code = resp.status
+                    reason = await self._error_reason(resp)
+            except (aiohttp.ClientError, TimeoutError) as e:
+                # The device may have admitted the job before the connection
+                # dropped. Resending it then would print it twice, so ask the
+                # device first and only retry if it is not working on it.
+                if await self._job_was_admitted(before):
+                    logger.warning(f"Printer {self.name}: POST /print failed ({e!r}) but the job was admitted")
+                    return
+                last_error = f"connection error: {e!r}"
+                if attempt < RETRY_ATTEMPTS:
+                    logger.info(f"Printer {self.name}: POST /print failed ({e!r}), retrying in {RETRY_DELAY}s")
+                    await asyncio.sleep(RETRY_DELAY)
+                    continue
+                raise PrinterError(f"{self.DEVICE_LABEL} unreachable after {RETRY_ATTEMPTS} attempts: {e!r}") from e
 
             if status_code == 202:
                 return
@@ -238,6 +267,13 @@ class HTTPBridgePrinter(BasePrinter):
             raise self._rejection(status_code, reason)
 
         raise PrinterError(f"{self.DEVICE_LABEL} unavailable: {last_error}")
+
+    async def _job_was_admitted(self, before: tuple[int, int]) -> bool:
+        """After a failed POST, whether the device took the job anyway."""
+        status = await self._fetch_status()
+        if status is None:
+            return False
+        return status.get("state") == "printing" or self._job_counters() != before
 
     @staticmethod
     async def _error_reason(resp: Any) -> str:
@@ -276,13 +312,20 @@ class HTTPBridgePrinter(BasePrinter):
             if failed > before_failed:
                 raise PrinterError(f"{self.DEVICE_LABEL} reported a failed job: {self._failed_job_detail()}")
 
+            # Success is checked before errors: a fault that appears after the
+            # job finished (paper out on the next label) is not this job's
+            # failure, and reporting it as one invites a duplicate reprint.
+            if printed > before_printed:
+                if self._errors:
+                    logger.warning(
+                        f"Printer {self.name}: job printed, but the printer now reports {', '.join(self._errors)}"
+                    )
+                return
+
             if status.get("state") == "printing":
                 continue
 
             if self._errors:
                 raise PrinterError(f"{self.DEVICE_LABEL} reported errors: {', '.join(self._errors)}")
-
-            if printed > before_printed:
-                return
 
         raise PrinterError(f"{self.DEVICE_LABEL} did not complete the job within {timeout:.0f}s")
