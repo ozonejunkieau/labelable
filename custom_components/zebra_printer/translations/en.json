@@ -126,7 +126,11 @@
       "fields": {
         "data": {
           "name": "Data",
-          "description": "The raw ZPL or EPL2 data to send to the printer."
+          "description": "The raw ZPL or EPL2 data to send to the printer, sent as UTF-8. Give either this or Data (base64)."
+        },
+        "data_b64": {
+          "name": "Data (base64)",
+          "description": "The job as base64, sent byte for byte. Use this for binary data such as EPL2 GW bitmaps."
         }
       }
     },

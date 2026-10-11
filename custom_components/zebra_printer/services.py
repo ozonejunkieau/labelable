@@ -13,6 +13,7 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
 from .coordinator import ZebraPrinterCoordinator
+from .payload import payload_bytes
 
 if TYPE_CHECKING:
     pass
@@ -26,15 +27,21 @@ SERVICE_FEED = "feed"
 
 # Service field names
 ATTR_DATA = "data"
+ATTR_DATA_B64 = "data_b64"
 ATTR_COUNT = "count"
 ATTR_DEVICE_ID = "device_id"
 
 # Service schemas
-SERVICE_PRINT_RAW_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_DATA): cv.string,
-    }
+# Exactly one of data (text) or data_b64 (exact bytes, e.g. EPL2 GW bitmaps)
+SERVICE_PRINT_RAW_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required(ATTR_DEVICE_ID): cv.string,
+            vol.Exclusive(ATTR_DATA, "payload"): cv.string,
+            vol.Exclusive(ATTR_DATA_B64, "payload"): cv.string,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DATA, ATTR_DATA_B64),
 )
 
 SERVICE_CALIBRATE_SCHEMA = vol.Schema(
@@ -89,7 +96,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_print_raw(call: ServiceCall) -> None:
         """Handle print_raw service call."""
         device_id = call.data[ATTR_DEVICE_ID]
-        data = call.data[ATTR_DATA]
+        try:
+            data = payload_bytes(call.data.get(ATTR_DATA), call.data.get(ATTR_DATA_B64))
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
 
         coordinator = get_coordinator_for_device(hass, device_id)
 

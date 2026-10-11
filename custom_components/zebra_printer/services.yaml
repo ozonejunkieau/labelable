@@ -11,9 +11,16 @@ print_raw:
           integration: zebra_printer
     data:
       name: Data
-      description: The raw ZPL or EPL2 data to send to the printer.
-      required: true
+      description: The raw ZPL or EPL2 data to send to the printer, sent as UTF-8. Give either this or Data (base64).
+      required: false
       example: "^XA^FO50,50^FDHello World^FS^XZ"
+      selector:
+        text:
+          multiline: true
+    data_b64:
+      name: Data (base64)
+      description: The job as base64, sent byte for byte. Use this for binary data such as EPL2 GW bitmaps.
+      required: false
       selector:
         text:
           multiline: true

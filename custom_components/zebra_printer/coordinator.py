@@ -82,15 +82,15 @@ class ZebraPrinterCoordinator(DataUpdateCoordinator[PrinterStatus]):
         finally:
             await protocol.disconnect()
 
-    async def async_send_raw(self, data: str) -> bool:
-        """Send raw data to printer."""
+    async def async_send_raw(self, data: bytes) -> bool:
+        """Send raw bytes to the printer, unmodified."""
         protocol = self._get_protocol()
 
         try:
             if not await protocol.connect():
                 return False
 
-            success = await protocol.send_raw(data.encode())
+            success = await protocol.send_raw(data)
             return success
 
         except (TimeoutError, OSError):

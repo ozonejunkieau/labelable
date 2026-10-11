@@ -1,6 +1,9 @@
 """Tests for Home Assistant integration support."""
 
+import base64
+import importlib.util
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -301,7 +304,7 @@ class TestPrinterHATransport:
         # Verify service call
         mock_session.post.assert_called_once_with(
             "http://ha.local/api/services/zebra_printer/print_raw",
-            json={"device_id": "printer_123", "data": "^XA^FDHello^FS^XZ"},
+            json={"device_id": "printer_123", "data_b64": base64.b64encode(b"^XA^FDHello^FS^XZ").decode()},
         )
 
     async def test_zpl_send_via_ha_error(self):
@@ -418,3 +421,83 @@ class TestPrinterHATransport:
         mock_session.post.assert_called_once()
         call_args = mock_session.post.call_args
         assert call_args[1]["json"]["device_id"] == "epl_printer"
+
+
+def _load_payload_module():
+    """Load the integration's payload helper without Home Assistant installed."""
+    path = Path(__file__).parent.parent / "custom_components" / "zebra_printer" / "payload.py"
+    spec = importlib.util.spec_from_file_location("zebra_printer_payload", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _response(status: int, text: str = ""):
+    resp = AsyncMock()
+    resp.status = status
+
+    async def _text():
+        return text
+
+    resp.text = _text
+    return resp
+
+
+def _ha_epl2_printer(*responses):
+    from labelable.printers.epl2 import EPL2Printer
+
+    printer = EPL2Printer(
+        PrinterConfig(name="lp2844", type=PrinterType.EPL2, connection=HAConnection(device_id="lp2844"))
+    )
+    session = MagicMock()
+    session.post = MagicMock(side_effect=[create_async_context_manager(r) for r in responses])
+    printer._ha_session = session
+    printer._ha_device_id = "lp2844"
+    printer._ha_url = "http://ha.local"
+    return printer, session
+
+
+# An EPL2 GW bitmap is arbitrary binary, including bytes >= 0x80
+BINARY_EPL2 = b'N\nGW10,10,2,2,\x00\xff\x80\x7f\nA10,50,0,3,1,1,N,"caf\xe9"\nP1\n'
+
+
+class TestHABinaryPayload:
+    """Bytes must reach the printer unchanged through the HA service call."""
+
+    @pytest.mark.asyncio
+    async def test_binary_job_round_trips_through_integration(self):
+        printer, session = _ha_epl2_printer(_response(200))
+        await printer._send_via_ha(BINARY_EPL2)
+
+        sent = session.post.call_args.kwargs["json"]
+        assert "data" not in sent
+        payload = _load_payload_module()
+        assert payload.payload_bytes(sent.get("data"), sent.get("data_b64")) == BINARY_EPL2
+
+    def test_old_text_path_corrupted_binary(self):
+        """Positive control for the bug: latin-1 out, UTF-8 back in."""
+        assert BINARY_EPL2.decode("latin-1").encode() != BINARY_EPL2
+
+    def test_text_data_is_utf8(self):
+        payload = _load_payload_module()
+        assert payload.payload_bytes("^XA^FDcafé^FS^XZ", None) == "^XA^FDcafé^FS^XZ".encode()
+
+    @pytest.mark.parametrize(("data", "data_b64"), [(None, None), (None, "not base64!")])
+    def test_invalid_payload_rejected(self, data, data_b64):
+        with pytest.raises(ValueError):
+            _load_payload_module().payload_bytes(data, data_b64)
+
+    @pytest.mark.asyncio
+    async def test_old_integration_ascii_job_falls_back_to_text(self):
+        printer, session = _ha_epl2_printer(_response(400, "extra keys not allowed"), _response(200))
+        await printer._send_via_ha(b'N\nA10,10,0,3,1,1,N,"hi"\nP1\n')
+        assert session.post.call_count == 2
+        assert session.post.call_args.kwargs["json"]["data"] == 'N\nA10,10,0,3,1,1,N,"hi"\nP1\n'
+
+    @pytest.mark.asyncio
+    async def test_old_integration_binary_job_refused_not_corrupted(self):
+        printer, session = _ha_epl2_printer(_response(400, "extra keys not allowed"))
+        with pytest.raises(ConnectionError, match="integration updated"):
+            await printer._send_via_ha(BINARY_EPL2)
+        assert session.post.call_count == 1

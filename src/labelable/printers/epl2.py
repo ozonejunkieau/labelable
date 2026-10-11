@@ -77,19 +77,6 @@ class EPL2Printer(BasePrinter):
         self._ha_device_id = conn.device_id
         self._ha_url = conn.ha_url.rstrip("/")
 
-    async def _send_via_ha(self, data: bytes) -> None:
-        """Send data to printer via Home Assistant service call."""
-        if not self._ha_session:
-            raise ConnectionError("HA session not initialized")
-
-        async with self._ha_session.post(
-            f"{self._ha_url}/api/services/zebra_printer/print_raw",
-            json={"device_id": self._ha_device_id, "data": data.decode("latin-1")},
-        ) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                raise ConnectionError(f"HA service call failed: {resp.status} - {text}")
-
     async def disconnect(self) -> None:
         """Close connection to the printer."""
         if self._writer:

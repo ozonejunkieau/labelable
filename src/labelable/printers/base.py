@@ -1,5 +1,6 @@
 """Abstract base class for printer implementations."""
 
+import base64
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -148,6 +149,43 @@ class BasePrinter(ABC):
         """
         for _ in range(quantity):
             await self.print_raw(data)
+
+    async def _send_via_ha(self, data: bytes) -> None:
+        """Send raw bytes to the printer via the HA zebra_printer integration.
+
+        Service data is JSON, so the job travels as base64 (``data_b64``) and
+        reaches the printer byte for byte. Sending it as text corrupted every
+        byte above 0x7F, which breaks EPL2 GW bitmaps and non-ASCII text.
+
+        An integration older than ``data_b64`` rejects the call with 400. A
+        pure-ASCII job is safe to resend as text, so that still works; a binary
+        job is refused rather than printed corrupted.
+        """
+        if not self._ha_session:
+            raise ConnectionError("HA session not initialized")
+
+        url = f"{self._ha_url}/api/services/zebra_printer/print_raw"
+        payload = {"device_id": self._ha_device_id, "data_b64": base64.b64encode(data).decode("ascii")}
+        async with self._ha_session.post(url, json=payload) as resp:
+            if resp.status == 200:
+                return
+            status, text = resp.status, await resp.text()
+
+        if status == 400 and data.isascii():
+            logger.info(f"Printer {self.name}: HA integration lacks data_b64, resending as text")
+            async with self._ha_session.post(
+                url, json={"device_id": self._ha_device_id, "data": data.decode("ascii")}
+            ) as resp:
+                if resp.status == 200:
+                    return
+                status, text = resp.status, await resp.text()
+        elif status == 400:
+            raise ConnectionError(
+                f"HA service call failed: {status} - {text}. This job contains binary data, which needs "
+                "the zebra_printer integration updated to a version supporting data_b64"
+            )
+
+        raise ConnectionError(f"HA service call failed: {status} - {text}")
 
     async def _is_online_ha(self) -> bool:
         """Check printer status via HA API.
