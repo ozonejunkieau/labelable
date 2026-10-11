@@ -1,6 +1,5 @@
 """Tests for P-Touch raster converter and PackBits encoding."""
 
-import hashlib
 import struct
 
 import pytest
@@ -328,24 +327,13 @@ class TestEncoderRoundTrip:
         assert count == len(rows)
         assert data == self._reference_encode(rows, compression)
 
-    # Digests captured from the pre-refactor implementation, for the batch
-    # path only. The single-label digests were deliberately dropped: they
-    # pinned output in which the feed extent was written to the print head
-    # axis and the tape extent to the feed axis. Orientation is now asserted
-    # structurally by TestSingleLabelOrientation instead of by hash.
-    GOLDEN = {
-        ("b", 9, 20, 40, True): "773d1a40fbe2b7699a529361d5f73c41612a2ab206177ea8bd4de9cc1bf125b5",
-        ("b", 18, 30, 17, False): "ac08033593355e978bc9a5556b4a4375ad653c802a43fd89daab416607f3aa23",
-        ("b", 24, 5, 5, True): "e4f3076c459b5cdb3f75bdeedca2d7c14d4d63a91c4a4adfa01d6f8cd21f3797",
-    }
-
-    @pytest.mark.parametrize("key,digest", sorted(GOLDEN.items()))
-    def test_matches_pre_refactor_digests(self, key, digest):
-        kind, tape, w, h, compression = key
-        img = _dense_image(w, h, seed=tape + w + h)
-        fn = image_to_ptouch_raster if kind == "s" else batch_image_to_ptouch_raster
-        data, _count = fn(img, tape_width_mm=tape, compression=compression)
-        assert hashlib.sha256(data).hexdigest() == digest
+    # Golden digests were removed entirely. They pinned pre-refactor output
+    # for both paths, and both paths have since had genuine geometry bugs
+    # fixed: the single-label path was transposed and mirrored, and the batch
+    # path distorted aspect ratio by scaling only the tape axis. A hash of
+    # wrong output is worse than no test, so orientation and aspect are now
+    # asserted structurally by TestSingleLabelOrientation and
+    # TestBatchAspectRatio instead.
 
 
 class TestSingleLabelOrientation:
@@ -465,3 +453,52 @@ class TestSingleLabelOrientation:
         # Crucially the *span* is the label width - a reflection would
         # place the bottom-left corner against the opposite pin instead.
         assert max(top) - min(top) == w - 1
+
+
+class TestBatchAspectRatio:
+    """The batch path must not distort geometry when fitting the tape.
+
+    Regression: batch_image_to_raster_rows scaled only the tape axis to the
+    printable pin window and left the feed axis at 1:1, so every batch label
+    printed stretched lengthways by (strip_height / printable_px) - 1.26x on
+    9 mm tape. The single-label path always preserved aspect; these two must
+    agree.
+    """
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    def test_square_stays_square(self, tape):
+        """A square block must not become a rectangle on tape."""
+        printable_px, _left, _right = TAPE_SPECS[tape]
+        side = 40
+        square = Image.new("1", (side, side), color=0)  # solid black square
+
+        rows = batch_image_to_raster_rows(square, tape_width_mm=tape)
+
+        # Feed extent must scale by the same factor as the tape extent.
+        expected = max(1, round(side * (printable_px / side)))
+        assert len(rows) == expected
+        # ...which is exactly the printable height: a square in, a square out.
+        assert len(rows) == printable_px
+
+    @pytest.mark.parametrize("tape", sorted(TAPE_SPECS))
+    def test_aspect_ratio_preserved(self, tape):
+        """Strip aspect ratio survives the fit to the printable window."""
+        printable_px, _left, _right = TAPE_SPECS[tape]
+        w, h = 300, 63
+        strip = _dense_image(w, h, seed=tape)
+
+        rows = batch_image_to_raster_rows(strip, tape_width_mm=tape)
+
+        before = w / h
+        after = len(rows) / printable_px
+        # Allow one row of rounding slack on the feed axis.
+        assert abs(after - before) < (1.0 / printable_px) + 1e-9, (
+            f"aspect distorted: {before:.3f} -> {after:.3f} (tape {tape}mm)"
+        )
+
+    def test_feed_axis_is_not_left_at_1to1(self):
+        """Explicitly pin the old bug: 63px on 9mm tape must not stay 706 rows."""
+        strip = _dense_image(706, 63, seed=1)
+        rows = batch_image_to_raster_rows(strip, tape_width_mm=9)
+        assert len(rows) != 706, "feed axis untouched - aspect ratio is broken"
+        assert len(rows) == round(706 * (50 / 63))

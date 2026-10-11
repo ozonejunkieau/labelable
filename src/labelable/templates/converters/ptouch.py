@@ -8,6 +8,9 @@ from PIL import Image
 PRINT_HEAD_PIXELS = 128
 BYTES_PER_LINE = PRINT_HEAD_PIXELS // 8  # 16
 
+# Minimum ink coverage (0-255) for a downscaled pixel to stay black.
+INK_COVERAGE_THRESHOLD = 64
+
 # Tape width → (printable pixels, left margin, right margin)
 # Values come from the ptouch-bridge interface spec §4 (128-pin head).
 TAPE_SPECS: dict[int, tuple[int, int, int]] = {
@@ -70,6 +73,35 @@ def _packbits_encode(data: bytes) -> bytes:
             result.extend(data[literal_start : literal_start + literal_len])
 
     return bytes(result)
+
+
+def _resize_preserving_ink(image: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Downscale 1-bit label art without losing thin features.
+
+    NEAREST point-samples, so any feature narrower than the sampling stride
+    can fall between samples and vanish outright - a 1px cut line simply
+    disappears. Label art is mostly thin features, so instead the ink
+    coverage is area-averaged and any destination pixel with meaningful
+    coverage is kept as ink. A 1px line survives as a line (occasionally one
+    pixel wider) rather than dropping out.
+
+    Args:
+        image: 1-bit image (mode "1", 0 = ink).
+        size: Target (width, height).
+
+    Returns:
+        Resized mode "1" image.
+    """
+    # Ink -> 255 so BOX averaging measures coverage, not brightness.
+    to_coverage = [255 if v < 128 else 0 for v in range(256)]
+    # Keep anything with >=25% coverage. A 1px feature straddling two
+    # destination pixels lands around 40% in each, so it survives in both
+    # rather than being lost to a 50% threshold.
+    to_ink = [0 if v >= INK_COVERAGE_THRESHOLD else 255 for v in range(256)]
+
+    coverage = image.convert("L").point(to_coverage)
+    coverage = coverage.resize(size, Image.Resampling.BOX)
+    return coverage.point(to_ink).convert("1")
 
 
 def _check_tape_width(tape_width_mm: int) -> tuple[int, int, int]:
@@ -186,7 +218,7 @@ def image_to_raster_rows(
     if rot_h > printable_px:
         scale = printable_px / rot_h
         new_w = max(1, int(rot_w * scale))
-        rotated = rotated.resize((new_w, printable_px), Image.Resampling.NEAREST)
+        rotated = _resize_preserving_ink(rotated, (new_w, printable_px))
         rot_w, rot_h = rotated.size
 
     # Centre the content within the tape's printable pin window
@@ -223,10 +255,14 @@ def batch_image_to_raster_rows(
 
     img_w, img_h = image.size
 
-    # Scale only the tape direction (height) to fit printable area.
-    # Width (feed direction) stays unchanged - each column = one raster line.
+    # Scale to the printable window preserving aspect ratio. Scaling only the
+    # tape axis - as an earlier version did - leaves the feed axis at 1:1 and
+    # prints every label stretched lengthways by (img_h / printable_px); on
+    # 9 mm tape that is 63px -> 50 pins, a visible 1.26x distortion.
     if img_h != printable_px:
-        image = image.resize((img_w, printable_px), Image.Resampling.NEAREST)
+        scale = printable_px / img_h
+        new_w = max(1, round(img_w * scale))
+        image = _resize_preserving_ink(image, (new_w, printable_px))
 
     return _strip_to_rows(image, left_margin)
 

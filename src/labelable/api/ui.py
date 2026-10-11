@@ -364,6 +364,8 @@ def set_app_state(
     default_user: str = "",
     templates_path: Any = None,
     template_warnings: list[str] | None = None,
+    fonts_dir: Any = None,
+    download_google_fonts: bool = False,
 ) -> None:
     """Set application state references for the UI."""
     _app_state["printers"] = printers
@@ -375,6 +377,10 @@ def set_app_state(
     _app_state["default_user"] = default_user
     _app_state["templates_path"] = templates_path
     _app_state["template_warnings"] = template_warnings or []
+    # Needed so the reload-templates button validates fonts and downloads
+    # missing ones exactly as startup does.
+    _app_state["fonts_dir"] = fonts_dir
+    _app_state["download_google_fonts"] = download_google_fonts
 
 
 def _page_wrapper(*components: AnyComponent, title: str = "Labelable") -> list[AnyComponent]:
@@ -592,7 +598,14 @@ async def reload_templates() -> list[AnyComponent]:
     details: list[str] = []
     if templates_path:
         logger.info(f"Reloading templates from {templates_path}")
-        result = load_templates(templates_path)
+        # Must mirror the startup call: without fonts_dir, load_templates
+        # skips font validation entirely and a template with a missing font
+        # loads silently and renders with the PIL fallback face.
+        result = load_templates(
+            templates_path,
+            fonts_dir=_app_state.get("fonts_dir"),
+            download_google_fonts=_app_state.get("download_google_fonts", False),
+        )
         _app_state["templates"].clear()
         _app_state["templates"].update(result.templates)
         _app_state["template_warnings"] = result.warnings

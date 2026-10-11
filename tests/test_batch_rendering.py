@@ -347,9 +347,12 @@ class TestBatchRasterCutLines:
         lines = _parse_uncompressed_raster(raster_data)
         assert len(lines) == line_count
 
-        # Raster line count = image width (1 column = 1 raster line, no scaling)
-        img_w, _ = image.size
-        assert line_count == img_w
+        # The strip is scaled to the printable window preserving aspect, so the
+        # feed axis shrinks by the same factor as the tape axis. It must NOT
+        # stay at 1:1 - that was the aspect-distortion bug.
+        img_w, img_h = image.size
+        printable_px, _left, _right = TAPE_SPECS[9]
+        assert line_count == max(1, round(img_w * (printable_px / img_h)))
 
         # Find raster lines where all printable bits are black
         fully_black = [i for i, line in enumerate(lines) if _is_printable_area_black(line, 9)]

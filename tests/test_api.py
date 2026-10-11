@@ -1,5 +1,7 @@
 """Tests for API and UI routes."""
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -194,6 +196,44 @@ class TestUIRoutes:
                 f"Template '{name}' is a {type(template).__name__}, not TemplateConfig"
             )
             assert hasattr(template, "name"), f"Template '{name}' missing 'name' attribute"
+
+    def test_reload_templates_passes_font_settings(self, client: TestClient):
+        """The reload button must validate fonts exactly as startup does.
+
+        Regression test: reload_templates used to call load_templates()
+        without fonts_dir or download_google_fonts. Both guards inside
+        load_templates are `and fonts_dir`, so passing None silently
+        disabled font validation *and* Google Fonts downloading - a
+        template with a missing font would load anyway and then render
+        with the PIL fallback face instead of being skipped.
+        """
+        from unittest.mock import patch
+
+        from labelable.api import ui
+        from labelable.config import TemplateLoadResult
+
+        saved = dict(ui._app_state)
+        try:
+            ui._app_state["templates"] = {}
+            ui._app_state["templates_path"] = Path("/tmp/some-templates-dir")
+            ui._app_state["fonts_dir"] = Path("/tmp/some-fonts-dir")
+            ui._app_state["download_google_fonts"] = True
+
+            with patch("labelable.config.load_templates", return_value=TemplateLoadResult()) as mock_load:
+                response = client.get("/api/reload-templates")
+                assert response.status_code == 200
+
+            assert mock_load.call_count == 1
+            kwargs = mock_load.call_args.kwargs
+            assert kwargs.get("fonts_dir") == Path("/tmp/some-fonts-dir"), (
+                "reload-templates dropped fonts_dir; font validation is silently skipped"
+            )
+            assert kwargs.get("download_google_fonts") is True, (
+                "reload-templates dropped download_google_fonts; missing fonts are not downloaded"
+            )
+        finally:
+            ui._app_state.clear()
+            ui._app_state.update(saved)
 
     def test_spa_handler_returns_html_with_dark_mode(self, client: TestClient):
         """Test SPA handler returns HTML with dark mode CSS."""

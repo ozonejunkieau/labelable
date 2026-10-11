@@ -570,6 +570,23 @@ Two invariants that are easy to break, and are covered by
   transposes the label and silently clips it, since the hardware discards
   content outside the printable pins.
 
+### P-Touch raster geometry invariants
+
+Both converter paths scale label art to fit the tape's printable pin window.
+Two invariants there have each been broken once and are now covered by
+`TestBatchAspectRatio` and `TestSingleLabelOrientation`:
+
+- **Scale both axes.** Fitting the tape axis to the printable window while
+  leaving the feed axis at 1:1 distorts every label by the ratio between
+  them - 63 px to 50 pins is a visible 1.26x lengthwise stretch on 9 mm tape.
+- **Never resample with NEAREST.** Label art is mostly thin features, and
+  point-sampling drops anything narrower than the sampling stride: a 1 px cut
+  line disappears outright. Use `_resize_preserving_ink`, which area-averages
+  ink coverage and keeps any pixel above `INK_COVERAGE_THRESHOLD`.
+
+Note that a 1 px cut line is one raster row = 0.14 mm on tape at 180 dpi, so
+`cut_lines: true` is a cutting guide rather than a visible divider.
+
 ### P-Touch transports
 
 Three independent transports, all `type: ptouch`, selected by connection type:

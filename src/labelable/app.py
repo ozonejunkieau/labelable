@@ -158,6 +158,8 @@ async def lifespan(app: FastAPI):
         default_user=_config.default_user,
         templates_path=templates_path,
         template_warnings=_template_warnings,
+        fonts_dir=fonts_path,
+        download_google_fonts=_config.download_google_fonts,
     )
 
     async with AsyncExitStack() as stack:
