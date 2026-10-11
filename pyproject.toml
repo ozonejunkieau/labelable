@@ -1,6 +1,6 @@
 [project]
 name = "labelable"
-version = "0.5.0"
+version = "0.5.1"
 description = "A general purpose label printing API and basic UI"
 readme = "README.md"
 license = "MIT"
