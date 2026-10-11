@@ -5,6 +5,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Any
 
 import aiohttp
 
@@ -14,6 +15,33 @@ logger = logging.getLogger(__name__)
 
 # Cache duration for online status (seconds)
 STATUS_CACHE_TTL = 30.0
+
+
+def read_serial_reply(port: Any, size: int, timeout: float, quiet_gap: float = 0.1) -> bytes:
+    """Read a reply from a serial port: up to ``size`` bytes, stopping once it goes quiet.
+
+    ``port.read(size)`` waits for all ``size`` bytes or the port's timeout, and
+    a status reply is far shorter than ``size``, so every healthcheck took the
+    full 5 s port timeout (and ignored the caller's timeout). This returns
+    ``quiet_gap`` after the last byte arrives, or at ``timeout`` if nothing does.
+    Blocking: run it in an executor.
+    """
+    deadline = time.monotonic() + timeout
+    buffer = bytearray()
+    last_byte_at: float | None = None
+    while len(buffer) < size:
+        waiting = port.in_waiting
+        if waiting:
+            buffer += port.read(min(waiting, size - len(buffer)))
+            last_byte_at = time.monotonic()
+            continue
+        now = time.monotonic()
+        if last_byte_at is not None and now - last_byte_at >= quiet_gap:
+            break
+        if now >= deadline:
+            break
+        time.sleep(0.01)
+    return bytes(buffer)
 
 
 class BasePrinter(ABC):

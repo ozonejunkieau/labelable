@@ -282,3 +282,42 @@ class TestStatusCheckFailureClosesConnection:
         assert await printer.is_online() is False
         port.close.assert_called_once()
         assert printer._serial is None
+
+
+class TestSerialReplyRead:
+    """A short reply must come back promptly, not after the full port timeout."""
+
+    def test_short_reply_returns_quickly(self):
+        import time
+
+        import serial
+
+        from labelable.printers.base import read_serial_reply
+
+        port = serial.serial_for_url("loop://", timeout=5.0)
+        port.write(b"\x02030,0,0,1218,000,0,0,0,000,0,0,0\x03\r\n")
+        started = time.monotonic()
+        data = read_serial_reply(port, 1024, timeout=2.0)
+        assert data.endswith(b"\x03\r\n")
+        assert time.monotonic() - started < 0.5
+
+    def test_no_reply_honours_timeout(self):
+        import time
+
+        import serial
+
+        from labelable.printers.base import read_serial_reply
+
+        port = serial.serial_for_url("loop://", timeout=5.0)
+        started = time.monotonic()
+        assert read_serial_reply(port, 1024, timeout=0.3) == b""
+        assert 0.25 < time.monotonic() - started < 1.0
+
+    def test_stops_at_size(self):
+        import serial
+
+        from labelable.printers.base import read_serial_reply
+
+        port = serial.serial_for_url("loop://")
+        port.write(b"x" * 100)
+        assert read_serial_reply(port, 32, timeout=1.0) == b"x" * 32
