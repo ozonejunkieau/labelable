@@ -677,6 +677,14 @@ the state. Both transports test for `state != "printing"` instead.
   on a 300 dpi GX430t). Jinja templates are in dots and aren't checked.
 - Keep the firmware's own Worker queue poller disabled
   (`CONFIG_ZB_WORKER_ENABLED`) when Labelable is the job source.
+- Printer settings: firmware with `GET /config` (bearer token) returns the
+  `^HH` configuration label text. `ZebraNetPrinter.refresh_details()` reads
+  it from the queue worker between jobs, at most every 10 minutes and again
+  after each job (a job can change stored settings such as `^PW`), never
+  while printing - each read holds the printer's USB link for up to ~4 s.
+  A 404 (older firmware) stops further reads. The parsed values feed
+  `printer.details`, shown on the Printers page and returned as `details`
+  by the REST and MCP printer listings.
 
 ## CLI Tools
 

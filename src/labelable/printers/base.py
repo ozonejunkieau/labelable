@@ -140,6 +140,22 @@ class BasePrinter(ABC):
         return []
 
     @property
+    def details(self) -> dict[str, str]:
+        """Extra facts for display (firmware, stored settings, counters), label to value.
+
+        Only transports that can read the printer override this.
+        """
+        return {}
+
+    async def refresh_details(self) -> None:
+        """Re-read details that are too slow to fetch on every status check.
+
+        The queue worker calls this between jobs, so it never overlaps a print
+        on this printer. Only transports with such details override it.
+        """
+        return None
+
+    @property
     def output_format(self) -> str:
         """Template engine output format this transport expects.
 

@@ -5,6 +5,7 @@ exposes a small HTTP API on the LAN:
 
     GET  /status   unauthenticated, returns printer identity, faults, counters
     POST /print    bearer token, raw ZPL body (Content-Type: application/zpl)
+    GET  /config   bearer token, the printer's ^HH configuration label text
 
 ZPL goes to the printer verbatim. The device decides completion itself by
 polling ``~HS`` until the printer's buffer drains, and cancels a failed job
@@ -14,6 +15,8 @@ The device holds one job at a time and has no queue - queueing is our job.
 """
 
 import logging
+import re
+import time
 from typing import Any
 
 from labelable.models.printer import PrinterConfig, ZebraBridgeConnection
@@ -35,6 +38,46 @@ JOIN_LIMIT_BYTES = 1024 * 1024
 REASON_NOT_CONNECTED = "printer not connected"
 REASON_NOT_READY = "printer not ready"
 
+# GET /config holds the printer's USB link for up to ~4 s, and the settings
+# it reports rarely change, so it is read far less often than /status.
+CONFIG_REFRESH_INTERVAL = 600.0
+
+# Configuration label lines shown as printer details, in display order:
+# (label on the ^HH output, display name, value kind)
+CONFIG_DETAILS: list[tuple[str, str, str]] = [
+    ("PRINT WIDTH", "Print width", "dots"),
+    ("LABEL LENGTH", "Label length", "dots"),
+    ("PRINT MODE", "Print mode", "word"),
+    ("MEDIA TYPE", "Media type", "word"),
+    ("SENSOR TYPE", "Sensor", "word"),
+    ("PRINT METHOD", "Print method", "word"),
+    ("DARKNESS", "Darkness", "number"),
+    ("PRINT SPEED", "Print speed", "text"),
+    ("TEAR OFF", "Tear-off / cut offset", "offset"),
+    ("LEFT POSITION", "Left position", "offset"),
+    ("LABEL TOP", "Label top", "offset"),
+    ("BACKFEED", "Backfeed", "word"),
+    ("CUTTER TYPE", "Cutter", "word"),
+    ("HEAD USAGE", "Head usage", "length"),
+    ("LAST CLEANED", "Last cleaned", "length"),
+    ("SERIAL NUMBER", "Serial number", "text"),
+]
+
+
+def parse_config_label(raw: str) -> dict[str, str]:
+    """Split ^HH output into {label: value}.
+
+    Each line is ``value<2+ spaces>LABEL``; a value can itself contain a
+    double space ("39.0IN   989MM"), so the label is the last column and
+    everything before it is the value. Lines without two columns are skipped.
+    """
+    result: dict[str, str] = {}
+    for line in raw.splitlines():
+        parts = re.split(r"\s{2,}", line.strip())
+        if len(parts) >= 2:
+            result[parts[-1]] = " ".join(parts[:-1])
+    return result
+
 
 class ZebraNetPrinter(HTTPBridgePrinter):
     """Zebra ZPL printer reached over HTTP via the ESP32-P4 zebra-bridge."""
@@ -49,6 +92,10 @@ class ZebraNetPrinter(HTTPBridgePrinter):
         super().__init__(config, conn)
         self._conn = conn
         self._dpi: int | None = None
+        self._config_lines: dict[str, str] = {}
+        self._config_read_at: float | None = None
+        # Older firmware has no GET /config; stop asking once it says so
+        self._config_unsupported = False
 
     @property
     def dpi(self) -> int | None:
@@ -121,6 +168,105 @@ class ZebraNetPrinter(HTTPBridgePrinter):
             return reason
         return super()._failed_job_detail()
 
+    @property
+    def details(self) -> dict[str, str]:
+        """Firmware, stored settings and job counters for display.
+
+        Settings come from the last GET /config; until it has been read, the
+        few that /status carries are shown instead.
+        """
+        status = self._last_status or {}
+        printer_info = status.get("printer")
+        printer: dict[str, Any] = printer_info if isinstance(printer_info, dict) else {}
+        media_info = status.get("media")
+        media: dict[str, Any] = media_info if isinstance(media_info, dict) else {}
+        result: dict[str, str] = {}
+
+        if printer.get("firmware"):
+            result["Firmware"] = str(printer["firmware"])
+        if self._dpi:
+            result["Resolution"] = f"{self._dpi} dpi"
+
+        if self._config_lines:
+            for label, name, kind in CONFIG_DETAILS:
+                value = self._config_lines.get(label)
+                if value:
+                    result[name] = self._format_config_value(value, kind)
+        else:
+            if media.get("print_mode"):
+                result["Print mode"] = str(media["print_mode"]).replace("_", " ").capitalize()
+            if isinstance(media.get("label_length_dots"), int):
+                result["Label length"] = self._dots_text(media["label_length_dots"])
+
+        printed, failed = self._job_counters()
+        if self._last_status is not None:
+            result["Jobs since bridge start"] = f"{printed} printed, {failed} failed"
+        if status.get("last_failure"):
+            result["Last failure"] = str(status["last_failure"])
+        return result
+
+    def _dots_text(self, dots: int) -> str:
+        if self._dpi:
+            return f"{dots} dots ({dots * 25.4 / self._dpi:.1f} mm)"
+        return f"{dots} dots"
+
+    def _format_config_value(self, value: str, kind: str) -> str:
+        if kind in ("dots", "offset"):
+            try:
+                dots = int(value)
+            except ValueError:
+                return value
+            return self._dots_text(dots) if kind == "dots" else f"{dots:+d} dots"
+        if kind == "word":
+            return value.capitalize()
+        if kind == "number":
+            try:
+                return f"{float(value):g}"
+            except ValueError:
+                return value
+        if kind == "length":
+            # "18,249 IN" -> "18,249 in"
+            return value.replace(" IN", " in")
+        return value
+
+    async def refresh_details(self) -> None:
+        """Re-read the printer's stored settings via GET /config.
+
+        At most every CONFIG_REFRESH_INTERVAL, and only when the printer is
+        connected and idle; a busy or slow reply is simply retried on the next
+        healthcheck.
+        """
+        token = self._token
+        if self._config_unsupported or not token:
+            return
+        if self._config_read_at is not None and time.monotonic() - self._config_read_at < CONFIG_REFRESH_INTERVAL:
+            return
+        status = self._last_status
+        if not status or not status.get("usb_connected") or status.get("state") == "printing":
+            return
+
+        session = self._ensure_session()
+        try:
+            async with session.get(f"{self.base_url}/config", headers={"Authorization": f"Bearer {token}"}) as resp:
+                if resp.status == 404:
+                    self._config_unsupported = True
+                    logger.info(f"Printer {self.name}: bridge firmware has no GET /config, settings not shown")
+                    return
+                if resp.status != 200:
+                    logger.debug(f"Printer {self.name}: GET /config returned HTTP {resp.status}")
+                    return
+                body = await resp.json()
+        except Exception as e:
+            logger.debug(f"Printer {self.name}: GET /config failed - {e}")
+            return
+
+        raw = body.get("raw") if isinstance(body, dict) else None
+        if not isinstance(raw, str):
+            logger.warning(f"Printer {self.name}: GET /config returned no configuration text")
+            return
+        self._config_lines = parse_config_label(raw)
+        self._config_read_at = time.monotonic()
+
     async def get_media_size(self) -> tuple[float, float] | None:
         """Not available: ~HS reports label length but not width."""
         return None
@@ -146,7 +292,12 @@ class ZebraNetPrinter(HTTPBridgePrinter):
         before_printed, before_failed = self._job_counters()
 
         await self._submit(token, data=data, headers={"Content-Type": "application/zpl"})
-        await self._wait_for_completion(before_printed, before_failed)
+        try:
+            await self._wait_for_completion(before_printed, before_failed)
+        finally:
+            # A job can change stored settings (^PW, ^MM...), so re-read them
+            # at the next healthcheck rather than show stale values
+            self._config_read_at = None
 
     async def print_with_quantity(self, data: bytes, quantity: int) -> None:
         """Send ZPL with quantity handling.

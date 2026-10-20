@@ -499,3 +499,142 @@ class TestRobustness:
         session = FakeSession()
         await _printer(session).print_with_quantity(ZPL, 0)
         assert session.post_calls == []
+
+
+# ---------------------------------------------------------------------------
+# GET /config details
+# ---------------------------------------------------------------------------
+
+# Abridged ^HH reply captured from the same GX420t via GET /config
+CONFIG_RAW = (
+    "  09.0                DARKNESS          \r\n"
+    "  2 IPS               PRINT SPEED       \r\n"
+    "  +000                TEAR OFF          \r\n"
+    "  CUTTER              PRINT MODE        \r\n"
+    "  GAP/NOTCH           MEDIA TYPE        \r\n"
+    "  WEB                 SENSOR TYPE       \r\n"
+    "  THERMAL-TRANS.      PRINT METHOD      \r\n"
+    "  581                 PRINT WIDTH       \r\n"
+    "  0188                LABEL LENGTH      \r\n"
+    "  39.0IN   989MM      MAXIMUM LENGTH    \r\n"
+    "  DEFAULT             BACKFEED          \r\n"
+    "  +000                LABEL TOP         \r\n"
+    "  +0000               LEFT POSITION     \r\n"
+    "  LINER/TAG FULL      CUTTER TYPE       \r\n"
+    "  18,249 IN           HEAD USAGE        \r\n"
+    "  31J10330054         SERIAL NUMBER     \r\n"
+    "  2104k............R: RAM               \r\n"
+)
+
+
+class TestConfigDetails:
+    def test_parse_config_label(self):
+        from labelable.printers.zebra_net import parse_config_label
+
+        lines = parse_config_label(CONFIG_RAW)
+        assert lines["PRINT WIDTH"] == "581"
+        assert lines["PRINT MODE"] == "CUTTER"
+        # A value with its own double space keeps both parts
+        assert lines["MAXIMUM LENGTH"] == "39.0IN 989MM"
+        # A line without two columns is skipped, not misread
+        assert not any("RAM" in label for label in lines)
+
+    @pytest.mark.asyncio
+    async def test_refresh_reads_config_with_token(self):
+        session = FakeSession(
+            get_responses=[_make_response(200, IDLE_STATUS), _make_response(200, {"raw": CONFIG_RAW})]
+        )
+        p = _printer(session)
+        await p.is_online()
+        await p.refresh_details()
+
+        assert session.get_calls[-1] == "http://esp32-zebra:80/config"
+        details = p.details
+        assert details["Print width"] == "581 dots (72.7 mm)"
+        assert details["Label length"] == "188 dots (23.5 mm)"
+        assert details["Print mode"] == "Cutter"
+        assert details["Left position"] == "+0 dots"
+        assert details["Serial number"] == "31J10330054"
+        assert details["Darkness"] == "9"
+        assert details["Head usage"] == "18,249 in"
+        assert details["Firmware"] == "V56.17.5Z"
+        assert details["Jobs since bridge start"] == "0 printed, 0 failed"
+
+    @pytest.mark.asyncio
+    async def test_refresh_is_rate_limited(self):
+        session = FakeSession(
+            get_responses=[_make_response(200, IDLE_STATUS), _make_response(200, {"raw": CONFIG_RAW})]
+        )
+        p = _printer(session)
+        await p.is_online()
+        await p.refresh_details()
+        calls = len(session.get_calls)
+        await p.refresh_details()
+        assert len(session.get_calls) == calls
+
+    @pytest.mark.asyncio
+    async def test_refresh_skipped_while_printing(self):
+        session = FakeSession(get_responses=[_make_response(200, _status(state="printing"))])
+        p = _printer(session)
+        await p.is_online()
+        await p.refresh_details()
+        assert session.get_calls == ["http://esp32-zebra:80/status"]
+
+    @pytest.mark.asyncio
+    async def test_refresh_skipped_without_token(self, monkeypatch):
+        monkeypatch.delenv(TOKEN_ENV_VAR, raising=False)
+        session = FakeSession(get_responses=[_make_response(200, IDLE_STATUS)])
+        p = _printer(session, token=None)
+        await p.is_online()
+        await p.refresh_details()
+        assert session.get_calls == ["http://esp32-zebra:80/status"]
+
+    @pytest.mark.asyncio
+    async def test_old_firmware_404_stops_asking(self):
+        session = FakeSession(get_responses=[_make_response(200, IDLE_STATUS), _make_response(404)])
+        p = _printer(session)
+        await p.is_online()
+        await p.refresh_details()
+        p._config_read_at = None
+        calls = len(session.get_calls)
+        await p.refresh_details()
+        assert len(session.get_calls) == calls
+
+    @pytest.mark.asyncio
+    async def test_busy_reply_retried_next_time(self):
+        session = FakeSession(
+            get_responses=[
+                _make_response(200, IDLE_STATUS),
+                _make_response(409, {"error": "printer busy"}),
+                _make_response(200, {"raw": CONFIG_RAW}),
+            ]
+        )
+        p = _printer(session)
+        await p.is_online()
+        await p.refresh_details()
+        assert "Print width" not in p.details
+        await p.refresh_details()
+        assert p.details["Print width"].startswith("581 dots")
+
+    @pytest.mark.asyncio
+    async def test_details_from_status_before_config(self):
+        session = FakeSession(get_responses=[_make_response(200, IDLE_STATUS)])
+        p = _printer(session)
+        await p.is_online()
+        details = p.details
+        assert details["Print mode"] == "Tear off"
+        assert details["Label length"] == "188 dots (23.5 mm)"
+        assert "Print width" not in details
+
+    @pytest.mark.asyncio
+    async def test_print_marks_config_stale(self):
+        printed = _status(jobs_printed=1)
+        session = FakeSession(
+            get_responses=[_make_response(200, IDLE_STATUS), _make_response(200, printed)],
+            post_responses=[_make_response(202, {"result": "accepted"})],
+        )
+        p = _printer(session)
+        p._config_read_at = 1.0
+        with _no_sleep():
+            await p.print_raw(ZPL)
+        assert p._config_read_at is None

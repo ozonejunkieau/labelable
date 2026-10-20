@@ -119,6 +119,14 @@ class PrintQueue:
             logger.warning(f"Printer {printer.name}: status check failed - {e}")
             return False
 
+    @staticmethod
+    async def _refresh_details(printer: BasePrinter) -> None:
+        """refresh_details, which only feeds the UI, so a failure is never fatal."""
+        try:
+            await printer.refresh_details()
+        except Exception as e:
+            logger.debug(f"Printer {printer.name}: details refresh failed - {e}")
+
     async def _worker_loop(
         self,
         printer: BasePrinter,
@@ -134,6 +142,7 @@ class PrintQueue:
             logger.debug(f"Initial status check for {printer.name} complete")
         except Exception as e:
             logger.debug(f"Initial status check for {printer.name} failed: {e}")
+        await self._refresh_details(printer)
 
         while True:
             try:
@@ -146,6 +155,7 @@ class PrintQueue:
                         await printer.is_online()
                     except Exception:
                         pass
+                    await self._refresh_details(printer)
                     continue
 
                 # Check if job has expired

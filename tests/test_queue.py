@@ -100,6 +100,33 @@ class TestPrintQueue:
         await queue.stop_worker(mock_printer.name)
 
     @pytest.mark.asyncio
+    async def test_worker_refreshes_details_after_initial_check(self, queue, mock_printer):
+        """Slow details are read by the worker, never by a request handler."""
+        calls: list[str] = []
+
+        async def refresh_details() -> None:
+            calls.append("refresh")
+
+        mock_printer.refresh_details = refresh_details  # type: ignore[method-assign]
+        await queue.start_worker(mock_printer)
+        await asyncio.sleep(0.05)
+        await queue.stop_worker(mock_printer.name)
+
+        assert calls == ["refresh"]
+
+    @pytest.mark.asyncio
+    async def test_failing_details_refresh_does_not_stop_worker(self, queue, mock_printer):
+        async def refresh_details() -> None:
+            raise RuntimeError("boom")
+
+        mock_printer.refresh_details = refresh_details  # type: ignore[method-assign]
+        await queue.start_worker(mock_printer)
+        await asyncio.sleep(0.05)
+
+        assert not queue._tasks[mock_printer.name].done()
+        await queue.stop_worker(mock_printer.name)
+
+    @pytest.mark.asyncio
     async def test_start_worker_already_running(self, queue, mock_printer):
         """Test starting a worker when one is already running."""
         await queue.start_worker(mock_printer)

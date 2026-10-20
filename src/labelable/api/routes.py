@@ -112,6 +112,8 @@ class PrinterStatus(BaseModel):
     model: str | None = None
     # Faults the printer reports, e.g. ["head_open", "paused"]; empty if none or unknown
     errors: list[str] = []
+    # Extra facts the transport can read (firmware, stored settings, counters)
+    details: dict[str, str] = {}
 
 
 class TemplateInfo(BaseModel):
@@ -171,6 +173,7 @@ async def list_printers() -> list[PrinterStatus]:
                 last_checked=printer.last_checked,
                 model=printer.model_info,
                 errors=_printer_errors(printer),
+                details=_printer_details(printer),
             )
         )
     return result
@@ -197,12 +200,18 @@ async def get_printer(name: str) -> PrinterStatus:
         last_checked=printer.last_checked,
         model=printer.model_info,
         errors=_printer_errors(printer),
+        details=_printer_details(printer),
     )
 
 
 def _printer_errors(printer: Any) -> list[str]:
     errors = getattr(printer, "errors", None)
     return [str(e) for e in errors] if isinstance(errors, list) else []
+
+
+def _printer_details(printer: Any) -> dict[str, str]:
+    details = getattr(printer, "details", None)
+    return {str(k): str(v) for k, v in details.items()} if isinstance(details, dict) else {}
 
 
 @router.get("/templates", response_model=list[TemplateInfo])
