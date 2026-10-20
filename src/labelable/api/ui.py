@@ -33,18 +33,6 @@ _app_state: dict[str, Any] = {}
 
 
 # Table row models for FastUI (requires Pydantic models, not dicts)
-class PrinterRow(BaseModel):
-    """Row model for printers table."""
-
-    name: str
-    type: str
-    connection: str
-    model: str
-    status: str
-    queue: str
-    last_checked: str
-
-
 class FieldRow(BaseModel):
     """Row model for template fields table."""
 
@@ -54,7 +42,447 @@ class FieldRow(BaseModel):
     default: str
 
 
-# Custom HTML template with dark mode support
+# Styling follows Home Assistant's default theme so the add-on panel sits
+# naturally in the HA sidebar. Kept out of _CUSTOM_HTML so it needs no brace
+# escaping for str.format.
+_CUSTOM_CSS = """
+:root {
+  --lb-primary: #03a9f4;
+  --lb-primary-strong: #0288d1;
+  --lb-on-primary: #ffffff;
+  --lb-bg: #fafafa;
+  --lb-card: #ffffff;
+  --lb-text: #212121;
+  --lb-muted: #727272;
+  --lb-border: #e0e0e0;
+  --lb-header: #03a9f4;
+  --lb-input: #ffffff;
+  --lb-hover: rgba(0, 0, 0, 0.04);
+  --lb-chip: rgba(0, 0, 0, 0.06);
+  --lb-ok: #2e7d32;
+  --lb-ok-bg: rgba(67, 160, 71, 0.14);
+  --lb-err: #c62828;
+  --lb-err-bg: rgba(219, 68, 55, 0.12);
+  --lb-warn: #8a5a00;
+  --lb-warn-bg: rgba(255, 166, 0, 0.16);
+  --lb-radius: 12px;
+  /* Bootstrap utilities (FastUI's footer uses bg-body) follow the theme */
+  --bs-body-bg: #fafafa;
+  --bs-body-bg-rgb: 250, 250, 250;
+  --bs-body-color: #212121;
+  --bs-body-font-family: Roboto, "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --lb-primary: #03a9f4;
+    --lb-primary-strong: #4fc3f7;
+    --lb-bg: #111111;
+    --lb-card: #1c1c1c;
+    --lb-text: #e1e1e1;
+    --lb-muted: #9b9b9b;
+    --lb-border: #2f2f2f;
+    --lb-header: #101e24;
+    --lb-input: #262626;
+    --lb-hover: rgba(255, 255, 255, 0.05);
+    --lb-chip: rgba(255, 255, 255, 0.08);
+    --lb-ok: #81c784;
+    --lb-ok-bg: rgba(129, 199, 132, 0.16);
+    --lb-err: #ef9a9a;
+    --lb-err-bg: rgba(239, 154, 154, 0.14);
+    --lb-warn: #ffcc80;
+    --lb-warn-bg: rgba(255, 204, 128, 0.14);
+    --bs-body-bg: #111111;
+    --bs-body-bg-rgb: 17, 17, 17;
+    --bs-body-color: #e1e1e1;
+  }
+}
+
+html, body {
+  background-color: var(--lb-bg);
+  color: var(--lb-text);
+  font-family: var(--bs-body-font-family);
+}
+body {
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: var(--lb-primary-strong);
+}
+a:hover {
+  color: var(--lb-primary);
+}
+h1, h2, h3, h4, h5, h6, p, label, .form-label {
+  color: var(--lb-text);
+}
+h2 {
+  font-weight: 400;
+  font-size: 1.75rem;
+}
+h4 {
+  font-weight: 500;
+  font-size: 1.1rem;
+  margin-top: 1.25rem;
+}
+.text-muted, .form-text {
+  color: var(--lb-muted) !important;
+}
+.text-danger {
+  color: var(--lb-err) !important;
+}
+
+/* Top bar, like an HA panel toolbar */
+.navbar {
+  background-color: var(--lb-header) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18);
+  min-height: 56px;
+}
+.navbar .navbar-brand, .navbar .nav-link, .navbar a {
+  color: var(--lb-on-primary) !important;
+}
+.navbar .navbar-brand {
+  font-weight: 400;
+  font-size: 1.25rem;
+}
+.navbar .nav-link {
+  opacity: 0.85;
+  border-radius: 8px;
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
+}
+.navbar .nav-link:hover, .navbar .nav-link.active {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.navbar-toggler {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.navbar-toggler-icon {
+  filter: invert(1);
+}
+
+.page {
+  max-width: 1100px;
+}
+
+/* Cards */
+.card, .lb-card {
+  background-color: var(--lb-card);
+  color: var(--lb-text);
+  border: 1px solid var(--lb-border);
+  border-radius: var(--lb-radius);
+  box-shadow: none;
+}
+.lb-card {
+  padding: 1rem 1.25rem;
+}
+/* Cards in a grid row share a height; a lone card fits its content */
+.row .lb-card {
+  height: 100%;
+}
+.lb-card form {
+  margin-bottom: 0;
+}
+.lb-card h5 {
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin: 0;
+}
+.lb-card p {
+  margin-bottom: 0.5rem;
+}
+.lb-card > h4:first-child {
+  margin-top: 0;
+}
+a.lb-card-link, .lb-card-link > a {
+  display: block;
+  height: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+.lb-card-link .lb-card {
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.lb-card-link:hover .lb-card {
+  border-color: var(--lb-primary);
+  background-color: var(--lb-hover);
+}
+.lb-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.lb-subtitle {
+  color: var(--lb-muted);
+  font-size: 0.9rem;
+  margin-bottom: 0.6rem;
+}
+.lb-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.lb-page-head h2 {
+  margin: 0;
+}
+.lb-section-title {
+  color: var(--lb-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0.9rem 0 0.4rem;
+}
+
+/* Chips and status pills */
+.lb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.lb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.65rem;
+  border-radius: 999px;
+  background-color: var(--lb-chip);
+  color: var(--lb-text);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.lb-status::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+.lb-ok {
+  background-color: var(--lb-ok-bg);
+  color: var(--lb-ok);
+}
+.lb-err {
+  background-color: var(--lb-err-bg);
+  color: var(--lb-err);
+}
+.lb-warn {
+  background-color: var(--lb-warn-bg);
+  color: var(--lb-warn);
+}
+
+/* Label/value list */
+.lb-kv {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: 0.3rem 1rem;
+  font-size: 0.9rem;
+}
+.lb-kv-label {
+  color: var(--lb-muted);
+}
+.lb-kv-value {
+  overflow-wrap: anywhere;
+}
+
+/* Callouts */
+.lb-callout {
+  border-radius: var(--lb-radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+.alert-warning {
+  background-color: var(--lb-warn-bg);
+  color: var(--lb-warn);
+  border: none;
+  border-radius: var(--lb-radius);
+}
+.alert-warning h5, .alert-warning p {
+  color: var(--lb-warn);
+}
+
+/* Buttons */
+.btn {
+  border-radius: 8px;
+  font-weight: 500;
+  padding: 0.45rem 1rem;
+}
+.btn-primary {
+  background-color: var(--lb-primary);
+  border-color: var(--lb-primary);
+  color: var(--lb-on-primary);
+}
+.btn-primary:hover, .btn-primary:focus {
+  background-color: var(--lb-primary-strong);
+  border-color: var(--lb-primary-strong);
+  color: var(--lb-on-primary);
+}
+.btn-secondary {
+  background-color: transparent;
+  border: 1px solid var(--lb-border);
+  color: var(--lb-primary-strong);
+}
+.btn-secondary:hover, .btn-secondary:focus {
+  background-color: var(--lb-hover);
+  border-color: var(--lb-primary);
+  color: var(--lb-primary-strong);
+}
+.btn + .table {
+  margin-top: 1rem;
+}
+
+/* Tables */
+.table {
+  --bs-table-bg: var(--lb-card);
+  --bs-table-color: var(--lb-text);
+  --bs-table-border-color: var(--lb-border);
+  border-radius: var(--lb-radius);
+  overflow: hidden;
+}
+.table th {
+  color: var(--lb-muted) !important;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+.table td, .table th {
+  color: var(--lb-text);
+  background-color: var(--lb-card);
+}
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Forms */
+form {
+  margin-bottom: 2rem;
+}
+.form-control, .form-select, input, select, textarea {
+  background-color: var(--lb-input) !important;
+  color: var(--lb-text) !important;
+  border-color: var(--lb-border) !important;
+  border-radius: 8px !important;
+}
+.form-control:focus, .form-select:focus, input:focus, select:focus, textarea:focus {
+  border-color: var(--lb-primary) !important;
+  box-shadow: 0 0 0 0.2rem rgba(3, 169, 244, 0.25) !important;
+}
+select option {
+  background-color: var(--lb-input);
+  color: var(--lb-text);
+}
+.form-check-input {
+  background-color: var(--lb-input);
+  border-color: var(--lb-muted);
+}
+.form-check-input:checked {
+  background-color: var(--lb-primary);
+  border-color: var(--lb-primary);
+}
+.form-check-label {
+  color: var(--lb-text) !important;
+}
+.dropdown-menu {
+  background-color: var(--lb-card);
+  border-color: var(--lb-border);
+}
+.dropdown-item {
+  color: var(--lb-text);
+}
+.dropdown-item:hover, .dropdown-item:focus {
+  background-color: var(--lb-hover);
+  color: var(--lb-text);
+}
+
+/* FastUI react-select */
+.fastui-react-select__control {
+  background-color: var(--lb-input) !important;
+  border-color: var(--lb-border) !important;
+  border-radius: 8px !important;
+}
+.fastui-react-select__placeholder,
+.fastui-react-select__indicator {
+  color: var(--lb-muted) !important;
+}
+.fastui-react-select__single-value,
+.fastui-react-select__input-container {
+  color: var(--lb-text) !important;
+  padding-left: 4px !important;
+}
+.fastui-react-select__menu {
+  background-color: var(--lb-card) !important;
+  border-color: var(--lb-border) !important;
+}
+.fastui-react-select__option {
+  color: var(--lb-text) !important;
+  background-color: var(--lb-card) !important;
+  padding-left: 12px !important;
+}
+.fastui-react-select__option--is-focused {
+  background-color: var(--lb-hover) !important;
+}
+.fastui-react-select__option--is-selected {
+  background-color: var(--lb-primary) !important;
+  color: var(--lb-on-primary) !important;
+}
+
+/* Preview image sits on white like the label itself */
+.lb-preview img, img.img-fluid {
+  background-color: #ffffff;
+  border-radius: 8px;
+  border: 1px solid var(--lb-border);
+}
+
+/* Hidden form - completely invisible, triggered by external button */
+.hidden-form-fields {
+  position: absolute;
+  left: -9999px;
+  visibility: hidden;
+}
+
+footer {
+  margin-top: 2rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--lb-border);
+  text-align: center;
+  font-size: 0.85rem;
+}
+footer a, footer .nav-link, footer * {
+  color: var(--lb-muted) !important;
+  text-decoration: none;
+}
+footer a:hover, footer .nav-link:hover {
+  color: var(--lb-primary-strong) !important;
+}
+
+@media (max-width: 576px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  h2 {
+    font-size: 1.5rem;
+  }
+  .table {
+    font-size: 0.875rem;
+  }
+  .lb-kv {
+    grid-template-columns: 1fr;
+    gap: 0 0;
+  }
+  .lb-kv-value {
+    margin-bottom: 0.4rem;
+  }
+}
+"""
+
 # {api_root_url} is the FastUI API root URL (e.g., /api or /api/hassio_ingress/<token>/api)
 _CUSTOM_HTML = """\
 <!doctype html>
@@ -65,290 +493,14 @@ _CUSTOM_HTML = """\
     <meta name="fastui:APIRootUrl" content="{api_root_url}" />
     <meta name="fastui:APIPathStrip" content="{path_strip}" />
     <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" \
+href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap">
     <script type="module" crossorigin \
 src="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/index.js"></script>
     <link rel="stylesheet" crossorigin \
 href="https://cdn.jsdelivr.net/npm/@pydantic/fastui-prebuilt@0.0.26/dist/assets/index.css">
-    <style>
-      /* Mobile responsiveness */
-      @media (max-width: 576px) {{
-        .table {{
-          font-size: 0.875rem;
-        }}
-        .container {{
-          padding-left: 0.5rem;
-          padding-right: 0.5rem;
-        }}
-        h2 {{
-          font-size: 1.5rem;
-        }}
-        h4 {{
-          font-size: 1.1rem;
-        }}
-      }}
-
-      /* Make tables horizontally scrollable on mobile */
-      .table-responsive {{
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-      }}
-
-      /* Card hover effect */
-      .card {{
-        transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
-      }}
-      .card:hover {{
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      }}
-
-      /* Light mode - ensure good contrast */
-      .form-check-input {{
-        border-color: #6c757d;
-      }}
-      .form-check-label {{
-        color: #212529;
-      }}
-      .form-select, select {{
-        color: #212529;
-        background-color: #fff;
-        border-color: #6c757d;
-      }}
-      .form-select option, select option {{
-        color: #212529;
-        background-color: #fff;
-      }}
-      .dropdown-menu {{
-        background-color: #fff;
-        border-color: #dee2e6;
-      }}
-      .dropdown-item {{
-        color: #212529;
-      }}
-      .dropdown-item:hover, .dropdown-item:focus {{
-        background-color: #e9ecef;
-        color: #212529;
-      }}
-      /* FastUI react-select - light mode */
-      .fastui-react-select__control {{
-        background-color: #fff !important;
-        border-color: #6c757d !important;
-      }}
-      .fastui-react-select__placeholder {{
-        color: #6c757d !important;
-      }}
-      .fastui-react-select__single-value {{
-        color: #212529 !important;
-        padding-left: 4px !important;
-      }}
-      .fastui-react-select__input-container {{
-        color: #212529 !important;
-      }}
-      .fastui-react-select__menu {{
-        background-color: #fff !important;
-        border-color: #dee2e6 !important;
-      }}
-      .fastui-react-select__option {{
-        color: #212529 !important;
-        background-color: #fff !important;
-        padding-left: 12px !important;
-      }}
-      .fastui-react-select__option--is-focused {{
-        background-color: #e9ecef !important;
-      }}
-      .fastui-react-select__option--is-selected {{
-        background-color: #0d6efd !important;
-        color: #fff !important;
-      }}
-
-      /* Spacing fixes */
-      .btn + .table {{
-        margin-top: 1rem;
-      }}
-      form {{
-        margin-bottom: 2rem;
-      }}
-
-      /* Hidden form - completely invisible, triggered by external button */
-      .hidden-form-fields {{
-        position: absolute;
-        left: -9999px;
-        visibility: hidden;
-      }}
-
-      /* Footer styling - high contrast override */
-      footer {{
-        margin-top: 2rem;
-        padding: 1rem 0;
-        border-top: 1px solid #dee2e6;
-        text-align: center;
-        font-size: 0.875rem;
-      }}
-      footer a,
-      footer a.text-muted,
-      footer .nav-link,
-      footer .nav-link.text-muted,
-      footer * {{
-        color: #0d6efd !important;
-        text-decoration: none;
-      }}
-      footer a:hover,
-      footer a.text-muted:hover,
-      footer .nav-link:hover,
-      footer .nav-link.text-muted:hover {{
-        color: #0a58ca !important;
-        text-decoration: underline;
-      }}
-
-      @media (prefers-color-scheme: dark) {{
-        :root {{
-          color-scheme: dark;
-        }}
-        body {{
-          background-color: #212529;
-          color: #f8f9fa;
-        }}
-        .navbar, .navbar-expand-lg {{
-          background-color: #343a40 !important;
-        }}
-        .navbar a, .navbar .navbar-brand {{
-          color: #f8f9fa !important;
-        }}
-        .card {{
-          background-color: #2b3035;
-          color: #f8f9fa;
-          border-color: #495057;
-        }}
-        .table {{
-          --bs-table-bg: #2b3035;
-          --bs-table-color: #f8f9fa;
-          --bs-table-border-color: #495057;
-          color: #f8f9fa;
-        }}
-        .table td, .table th, .table tr {{
-          color: #f8f9fa !important;
-          background-color: #2b3035;
-        }}
-        .table thead {{
-          color: #f8f9fa;
-        }}
-        .form-control, .form-select, input, select, textarea {{
-          background-color: #343a40 !important;
-          color: #f8f9fa !important;
-          border-color: #495057 !important;
-        }}
-        .form-control:focus, .form-select:focus, input:focus, select:focus {{
-          background-color: #3d4349 !important;
-          color: #f8f9fa !important;
-          border-color: #86b7fe !important;
-        }}
-        select option {{
-          background-color: #343a40;
-          color: #f8f9fa;
-        }}
-        /* Radio buttons and checkboxes */
-        .form-check-input {{
-          background-color: #343a40;
-          border-color: #6c757d;
-        }}
-        .form-check-input:checked {{
-          background-color: #0d6efd;
-          border-color: #0d6efd;
-        }}
-        .form-check-label {{
-          color: #f8f9fa !important;
-        }}
-        /* Dropdown menus */
-        .dropdown-menu {{
-          background-color: #343a40;
-          border-color: #495057;
-        }}
-        .dropdown-item {{
-          color: #f8f9fa;
-        }}
-        .dropdown-item:hover, .dropdown-item:focus {{
-          background-color: #495057;
-          color: #f8f9fa;
-        }}
-        .form-label, label {{
-          color: #f8f9fa !important;
-        }}
-        .form-text, .text-muted {{
-          color: #adb5bd !important;
-        }}
-        a {{
-          color: #6ea8fe;
-        }}
-        a:hover {{
-          color: #9ec5fe;
-        }}
-        .btn-primary {{
-          background-color: #0d6efd;
-          border-color: #0d6efd;
-        }}
-        .container, .container-fluid {{
-          background-color: #212529;
-        }}
-        h1, h2, h3, h4, h5, h6, p {{
-          color: #f8f9fa;
-        }}
-        /* FastUI react-select - dark mode */
-        .fastui-react-select__control {{
-          background-color: #343a40 !important;
-          border-color: #495057 !important;
-        }}
-        .fastui-react-select__placeholder {{
-          color: #adb5bd !important;
-        }}
-        .fastui-react-select__single-value {{
-          color: #f8f9fa !important;
-          padding-left: 4px !important;
-        }}
-        .fastui-react-select__input-container {{
-          color: #f8f9fa !important;
-        }}
-        .fastui-react-select__menu {{
-          background-color: #343a40 !important;
-          border-color: #495057 !important;
-        }}
-        .fastui-react-select__option {{
-          color: #f8f9fa !important;
-          background-color: #343a40 !important;
-          padding-left: 12px !important;
-        }}
-        .fastui-react-select__option--is-focused {{
-          background-color: #495057 !important;
-        }}
-        .fastui-react-select__option--is-selected {{
-          background-color: #0d6efd !important;
-          color: #fff !important;
-        }}
-        .fastui-react-select__indicator {{
-          color: #adb5bd !important;
-        }}
-        .fastui-react-select__indicator:hover {{
-          color: #f8f9fa !important;
-        }}
-        /* Footer dark mode */
-        footer {{
-          background-color: #212529;
-          border-top-color: #495057;
-        }}
-        footer a,
-        footer a.text-muted,
-        footer .nav-link,
-        footer .nav-link.text-muted,
-        footer * {{
-          color: #f8f9fa !important;
-        }}
-        footer a:hover,
-        footer a.text-muted:hover,
-        footer .nav-link:hover,
-        footer .nav-link.text-muted:hover {{
-          color: #6ea8fe !important;
-        }}
-      }}
-    </style>
+    <style>{css}</style>
   </head>
   <body>
     <div id="root"></div>
@@ -419,17 +571,58 @@ def _status_text(printer: Any) -> str:
     return "Offline"
 
 
-def _printer_status_line(name: str, printer: Any, queue: Any) -> str:
-    """One line of status for a printer on the print form."""
-    status = _status_text(printer)
-    line = f"Printer: {name} - {status}"
-    if status.startswith("Offline"):
-        line += " (jobs will wait in the queue)"
-    line += f" - {_connection_summary(printer.config.connection)}"
+def _chip(text: str, kind: str = "") -> AnyComponent:
+    """A small rounded label; kind adds lb-ok / lb-err / lb-warn / lb-status."""
+    return c.Div(class_name=f"lb-chip {kind}".strip(), components=[c.Text(text=text)])
+
+
+def _status_chip(printer: Any) -> AnyComponent:
+    """Online/offline pill coloured by the cached status."""
+    cached = printer.get_cached_online_status()
+    kind = "lb-ok" if cached else "lb-err" if cached is False else ""
+    return _chip(_status_text(printer), f"lb-status {kind}")
+
+
+def _key_values(pairs: list[tuple[str, str]]) -> AnyComponent:
+    """Two-column label/value grid."""
+    cells: list[AnyComponent] = []
+    for label, value in pairs:
+        cells.append(c.Div(class_name="lb-kv-label", components=[c.Text(text=label)]))
+        cells.append(c.Div(class_name="lb-kv-value", components=[c.Text(text=value)]))
+    return c.Div(class_name="lb-kv", components=cells)
+
+
+def _page_head(title: str, *actions: AnyComponent) -> AnyComponent:
+    """Page heading with optional buttons on the right."""
+    return c.Div(
+        class_name="lb-page-head",
+        components=[
+            c.Heading(text=title, level=2),
+            c.Div(class_name="d-flex gap-2", components=list(actions)),
+        ],
+    )
+
+
+def _back_link() -> AnyComponent:
+    return c.Link(components=[c.Text(text="← Back to templates")], on_click=GoToEvent(url="/"))
+
+
+def _printer_status_row(name: str, printer: Any, queue: Any) -> AnyComponent:
+    """A printer's name, status, connection and queue as a row of chips."""
+    chips = [
+        _chip(name),
+        _status_chip(printer),
+        _chip(_connection_summary(printer.config.connection)),
+    ]
     queue_size = queue.get_queue_size(name) if queue else 0
     if queue_size > 0:
-        line += f" [{queue_size} queued]"
-    return line
+        chips.append(_chip(f"{queue_size} queued", "lb-warn"))
+    components: list[AnyComponent] = [c.Div(class_name="lb-chips", components=chips)]
+    if printer.get_cached_online_status() is False:
+        components.append(
+            c.Paragraph(text="Jobs will wait in the queue until it is back.", class_name="text-muted small mt-1")
+        )
+    return c.Div(class_name="mb-2", components=components)
 
 
 def _size_text(template: Any) -> str:
@@ -486,24 +679,25 @@ async def home(request: Request) -> list[AnyComponent]:
     # Build cards for each template using FastUI Div components
     template_cards = []
     for template in templates.values():
+        chips = [_chip(_size_text(template)), _chip(template.engine.value.capitalize())]
+        chips.extend(_chip(name) for name in template.supported_printers)
         template_cards.append(
             c.Div(
                 class_name="col-md-6 col-lg-4 mb-3",
                 components=[
                     c.Link(
                         on_click=GoToEvent(url=f"/print/{template.name}"),
+                        class_name="lb-card-link",
                         components=[
                             c.Div(
-                                class_name="card h-100",
+                                class_name="lb-card",
                                 components=[
-                                    c.Div(
-                                        class_name="card-body",
-                                        components=[
-                                            c.Heading(text=template.name, level=5),
-                                            c.Paragraph(text=template.description or "No description"),
-                                            c.Text(text=f"Size: {_size_text(template)}"),
-                                        ],
+                                    c.Heading(text=template.name, level=5),
+                                    c.Paragraph(
+                                        text=template.description or "No description",
+                                        class_name="lb-subtitle mt-1",
                                     ),
+                                    c.Div(class_name="lb-chips", components=chips),
                                 ],
                             ),
                         ],
@@ -514,7 +708,14 @@ async def home(request: Request) -> list[AnyComponent]:
 
     # Build page components
     page_components: list[AnyComponent] = [
-        c.Heading(text="Label Templates", level=2),
+        _page_head(
+            "Label templates",
+            c.Link(
+                components=[c.Text(text="Reload templates")],
+                on_click=GoToEvent(url="/reload-templates"),
+                class_name="btn btn-secondary",
+            ),
+        ),
     ]
 
     # Display any template warnings
@@ -533,13 +734,7 @@ async def home(request: Request) -> list[AnyComponent]:
 
     page_components.extend(
         [
-            c.Paragraph(text="Select a template to print:"),
             c.Div(class_name="row", components=template_cards),
-            c.Link(
-                components=[c.Text(text="Reload Templates")],
-                on_click=GoToEvent(url="/reload-templates"),
-                class_name="btn btn-secondary mt-3",
-            ),
         ]
     )
 
@@ -586,50 +781,55 @@ async def printers_page() -> list[AnyComponent]:
             title="Printers - Labelable",
         )
 
-    rows = []
+    cards: list[AnyComponent] = []
     for name, printer in printers.items():
-        # Use cached status to avoid blocking page render
-        status = _status_text(printer)
-
-        # Format last checked time
-        if printer.last_checked:
-            last_checked = printer.last_checked.strftime("%H:%M:%S")
-        else:
-            last_checked = "-"
-
+        # Everything here is cached, so the page never waits on a printer
+        last_checked = printer.last_checked.strftime("%H:%M:%S") if printer.last_checked else "-"
         queue_size = queue.get_queue_size(name) if queue else 0
-        rows.append(
-            PrinterRow(
-                name=name,
-                type=str(printer.config.type),
-                connection=_connection_summary(printer.config.connection),
-                model=printer.model_info or "-",
-                status=status,
-                queue=str(queue_size),
-                last_checked=last_checked,
+
+        summary = [
+            ("Queue", f"{queue_size} waiting" if queue_size else "Empty"),
+            ("Last checked", last_checked),
+        ]
+        body: list[AnyComponent] = [
+            c.Div(
+                class_name="lb-card-head",
+                components=[c.Heading(text=name, level=5), _status_chip(printer)],
+            ),
+            c.Paragraph(text=printer.model_info or "Model not reported", class_name="lb-subtitle"),
+            c.Div(
+                class_name="lb-chips mb-2",
+                components=[
+                    _chip(printer.config.type.value.upper()),
+                    _chip(_connection_summary(printer.config.connection)),
+                ],
+            ),
+            _key_values(summary),
+        ]
+        details = printer.details
+        if details:
+            body.append(c.Div(class_name="lb-section-title", components=[c.Text(text="Printer")]))
+            body.append(_key_values(list(details.items())))
+
+        cards.append(
+            c.Div(
+                class_name="col-lg-6 mb-3",
+                components=[c.Div(class_name="lb-card", components=body)],
             )
         )
 
     return _page_wrapper(
-        c.Heading(text="Printers", level=2),
-        # Nothing listened for the old PageEvent("reload"), so the button did
-        # nothing; navigating with a fresh query re-fetches the page
-        c.Button(
-            text="Refresh",
-            on_click=GoToEvent(url="/printers", query={"t": str(int(datetime.now().timestamp()))}),
+        _page_head(
+            "Printers",
+            # Nothing listened for the old PageEvent("reload"), so the button did
+            # nothing; navigating with a fresh query re-fetches the page
+            c.Button(
+                text="Refresh",
+                named_style="secondary",
+                on_click=GoToEvent(url="/printers", query={"t": str(int(datetime.now().timestamp()))}),
+            ),
         ),
-        c.Table(
-            data=rows,
-            columns=[
-                DisplayLookup(field="name", title="Name"),
-                DisplayLookup(field="type", title="Type"),
-                DisplayLookup(field="connection", title="Connection"),
-                DisplayLookup(field="model", title="Model"),
-                DisplayLookup(field="status", title="Status"),
-                DisplayLookup(field="queue", title="Queue"),
-                DisplayLookup(field="last_checked", title="Last Checked"),
-            ],
-        ),
+        c.Div(class_name="row", components=cards),
         title="Printers - Labelable",
     )
 
@@ -683,12 +883,7 @@ async def reload_templates() -> list[AnyComponent]:
         components.append(c.Heading(text="Loaded Templates", level=4))
         for detail in details:
             components.append(c.Paragraph(text=detail))
-    components.append(
-        c.Link(
-            components=[c.Text(text="← Back to templates")],
-            on_click=GoToEvent(url="/"),
-        ),
-    )
+    components.append(_back_link())
 
     return _page_wrapper(*components, title="Reload - Labelable")
 
@@ -724,8 +919,11 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
     supported_names = ", ".join(template.supported_printers) if template.supported_printers else "None specified"
     template_info: list[AnyComponent] = [
         c.Heading(text=template.name, level=2),
-        c.Paragraph(text=template.description or "No description"),
-        c.Paragraph(text=f"Label size: {_size_text(template)}"),
+        c.Paragraph(text=template.description or "No description", class_name="lb-subtitle"),
+        c.Div(
+            class_name="lb-chips mb-3",
+            components=[_chip(_size_text(template)), _chip(template.engine.value.capitalize())],
+        ),
     ]
 
     # Only show detailed field table when no printers available (review mode)
@@ -782,7 +980,7 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
             printer_name = compatible_printers[0][0]
             form_components = [
                 c.Heading(text="Print", level=4),
-                c.Paragraph(text=_printer_status_line(printer_name, printers[printer_name], queue)),
+                _printer_status_row(printer_name, printers[printer_name], queue),
             ]
             # Show fixed quantity if set
             if template.quantity is not None:
@@ -814,10 +1012,7 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
             # Several printers: show each one's status, not just the dropdown
             form_components = [
                 c.Heading(text="Print", level=4),
-                *[
-                    c.Paragraph(text=_printer_status_line(name, printers[name], queue), class_name="mb-1")
-                    for name, _ in compatible_printers
-                ],
+                *[_printer_status_row(name, printers[name], queue) for name, _ in compatible_printers],
             ]
             # Show fixed quantity if set
             if template.quantity is not None:
@@ -848,11 +1043,8 @@ async def print_form(request: Request, template_name: str) -> list[AnyComponent]
 
     return _page_wrapper(
         *template_info,
-        *form_components,
-        c.Link(
-            components=[c.Text(text="<- Back to templates")],
-            on_click=GoToEvent(url="/"),
-        ),
+        c.Div(class_name="lb-card mb-3", components=form_components),
+        _back_link(),
         title=f"{template.name} - Labelable",
     )
 
@@ -1002,6 +1194,9 @@ JOB_STATUS_TEXT = {
     "expired": "Expired - the printer was unavailable for too long",
 }
 
+# Chip colour per job status; pending and printing are amber
+JOB_STATUS_KIND = {"completed": "lb-ok", "failed": "lb-err", "expired": "lb-err"}
+
 
 @router.get("/api/jobs/{job_id}", response_model=FastUI, response_model_exclude_none=True)
 async def job_page(job_id: str) -> list[AnyComponent]:
@@ -1012,7 +1207,7 @@ async def job_page(job_id: str) -> list[AnyComponent]:
         return _page_wrapper(
             c.Heading(text="Job not found", level=2),
             c.Paragraph(text="Jobs are kept in memory and are lost when Labelable restarts."),
-            c.Link(components=[c.Text(text="<- Back to templates")], on_click=GoToEvent(url="/")),
+            _back_link(),
             title="Job not found - Labelable",
         )
 
@@ -1035,9 +1230,10 @@ async def job_page(job_id: str) -> list[AnyComponent]:
         if name != "quantity"
     ]
 
+    status_kind = JOB_STATUS_KIND.get(str(job.status), "lb-warn")
     components: list[AnyComponent] = [
         c.Heading(text=job.template_name, level=2),
-        c.Heading(text=status_text, level=4),
+        c.Div(class_name="lb-chips mb-3", components=[_chip(status_text, f"lb-status {status_kind}")]),
         *[c.Paragraph(text=line) for line in details],
     ]
     if job.error_message:
@@ -1063,7 +1259,7 @@ async def job_page(job_id: str) -> list[AnyComponent]:
                     on_click=GoToEvent(url=f"/print/{job.template_name}"),
                     class_name="btn btn-primary",
                 ),
-                c.Link(components=[c.Text(text="<- Back to templates")], on_click=GoToEvent(url="/")),
+                _back_link(),
             ],
         )
     )
@@ -1404,4 +1600,6 @@ async def spa_handler(request: Request, path: str) -> HTMLResponse:
     root_path = request.scope.get("root_path", "")
     api_root_url = f"{root_path}/api" if root_path else "/api"
     path_strip = root_path if root_path else ""
-    return HTMLResponse(_CUSTOM_HTML.format(title="Labelable", api_root_url=api_root_url, path_strip=path_strip))
+    return HTMLResponse(
+        _CUSTOM_HTML.format(title="Labelable", api_root_url=api_root_url, path_strip=path_strip, css=_CUSTOM_CSS)
+    )

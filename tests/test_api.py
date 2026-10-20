@@ -103,7 +103,6 @@ class TestUIComponents:
 
         assert ui.router is not None
         # Verify row models are defined
-        assert ui.PrinterRow is not None
         assert ui.FieldRow is not None
 
     def test_table_with_display_lookup(self):
@@ -131,29 +130,7 @@ class TestUIComponents:
         from fastui import components as c
         from fastui.components.display import DisplayLookup
 
-        from labelable.api.ui import FieldRow, PrinterRow
-
-        # Create tables with our actual row models
-        printer_table = c.Table(
-            data=[
-                PrinterRow(
-                    name="test",
-                    type="zpl",
-                    connection="TCP 10.0.0.5:9100",
-                    model="GX420D",
-                    status="Online",
-                    queue="0",
-                    last_checked="12:00:00",
-                )
-            ],
-            columns=[
-                DisplayLookup(field="name", title="Name"),
-                DisplayLookup(field="type", title="Type"),
-            ],
-        )
-        # This will raise PydanticSerializationError if models are wrong
-        printer_json = printer_table.model_dump_json()
-        assert "test" in printer_json
+        from labelable.api.ui import FieldRow
 
         field_table = c.Table(
             data=[FieldRow(name="title", type="string", required="Yes", default="-")],
