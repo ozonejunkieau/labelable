@@ -87,6 +87,23 @@ class TestZPLConverter:
 
         assert b"^GFA" in output
 
+    def test_print_width_emitted_before_graphic(self):
+        """^PW must precede the graphic field or the printer clips with its stored width."""
+        image = Image.new("1", (8, 1), color=1)
+
+        output = image_to_zpl(image, print_width=832)
+
+        assert b"^PW832" in output
+        assert output.index(b"^PW832") < output.index(b"^GFA")
+
+    def test_no_print_width_by_default(self):
+        """Without a print width the printer's stored width is left alone."""
+        image = Image.new("1", (8, 1), color=1)
+
+        output = image_to_zpl(image)
+
+        assert b"^PW" not in output
+
 
 class TestEPL2Converter:
     """Tests for EPL2 converter."""

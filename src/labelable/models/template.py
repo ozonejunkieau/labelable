@@ -209,6 +209,9 @@ class TemplateConfig(BaseModel):
 
     # Print settings
     darkness: int | None = None  # Print darkness 0-30 (ZPL ~SD command)
+    # Print width in mm (ZPL ^PW command). Unset leaves the printer's stored
+    # width, which clips anything printed past it.
+    print_width_mm: float | None = Field(default=None, gt=0)
 
     # P-Touch settings (for continuous tape printers)
     ptouch_tape_width_mm: int | None = None  # 6, 9, 12, 18, or 24

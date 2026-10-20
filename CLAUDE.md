@@ -326,6 +326,7 @@ dpi: 203  # Printer DPI (default 203)
 label_offset_x_mm: 2.3  # Horizontal offset for label alignment
 label_offset_y_mm: 0.0  # Vertical offset
 darkness: 15  # Print darkness 0-30 (ZPL ~SD command)
+print_width_mm: 104  # Optional ZPL ^PW; unset keeps the printer's stored width
 supported_printers:
   - zpl
 fields:

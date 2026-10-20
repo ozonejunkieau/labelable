@@ -159,11 +159,15 @@ class ImageTemplateEngine(BaseTemplateEngine):
                 # Convert mm offsets to dots
                 offset_x = int(template.label_offset_x_mm * template.dpi / 25.4)
                 offset_y = int(template.label_offset_y_mm * template.dpi / 25.4)
+                print_width = None
+                if template.print_width_mm is not None:
+                    print_width = round(template.print_width_mm * template.dpi / 25.4)
                 return image_to_zpl(
                     image,
                     label_offset_x=offset_x,
                     label_offset_y=offset_y,
                     darkness=template.darkness,
+                    print_width=print_width,
                 )
 
         except ValueError as e:

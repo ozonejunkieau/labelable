@@ -103,6 +103,13 @@ class TestImageTemplateEngine:
         assert b"^GFA" in output
         assert b"^XZ" in output
 
+    def test_render_zpl_print_width(self, image_engine, rectangular_template):
+        """print_width_mm becomes ^PW in dots at the template's dpi."""
+        template = rectangular_template.model_copy(update={"print_width_mm": 104.0, "dpi": 203})
+        output = image_engine.render(template, {"title": "Hello World"}, output_format="zpl")
+
+        assert b"^PW831" in output  # 104 mm * 203 / 25.4 = 831.2
+
     def test_render_rectangular_to_epl2(self, image_engine, rectangular_template):
         """Render rectangular template to EPL2 format."""
         context = {"title": "Hello World"}

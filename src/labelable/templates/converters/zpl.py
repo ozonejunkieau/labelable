@@ -8,6 +8,7 @@ def image_to_zpl(
     label_offset_x: int = 0,
     label_offset_y: int = 0,
     darkness: int | None = None,
+    print_width: int | None = None,
 ) -> bytes:
     """Convert a PIL image to ZPL ^GFA graphic command.
 
@@ -22,6 +23,7 @@ def image_to_zpl(
         label_offset_x: Horizontal label offset in dots (for ^LH command).
         label_offset_y: Vertical label offset in dots (for ^LH command).
         darkness: Print darkness 0-30 (for ~SD command).
+        print_width: Print width in dots (for ^PW command).
 
     Returns:
         ZPL commands as bytes.
@@ -68,6 +70,10 @@ def image_to_zpl(
     # Add darkness setting if specified
     if darkness is not None:
         zpl_parts.append(f"~SD{darkness}")
+
+    # Add print width if specified
+    if print_width is not None:
+        zpl_parts.append(f"^PW{print_width}")
 
     # Add label home offset if specified
     if label_offset_x or label_offset_y:

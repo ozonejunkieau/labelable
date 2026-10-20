@@ -127,6 +127,7 @@ dimensions:
   diameter_mm: 50
 dpi: 203
 label_offset_x_mm: 2.3  # Fine-tune label positioning
+print_width_mm: 104     # Optional ZPL ^PW, if the printer clips the right edge
 supported_printers:
   - zpl-printer
 fields:
