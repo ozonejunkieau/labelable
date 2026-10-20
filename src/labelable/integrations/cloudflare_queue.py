@@ -60,6 +60,12 @@ async def _process_message(
         body = dict(raw_body)
 
     event_type = body.get("event_type", "")
+    logger.info(
+        "CF queue: processing message %s (attempt %s, event_type=%r)",
+        message.get("id", "?"),
+        message.get("attempts", "?"),
+        event_type,
+    )
     if not event_type:
         logger.warning("CF queue message missing event_type, discarding")
         return True
