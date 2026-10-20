@@ -239,7 +239,11 @@ class TestCrudFontValidation:
         assert not (tmp_path / "img.yaml").exists()
 
     def test_create_accepts_available_font(self, tmp_path: Path):
-        fonts = Path(__file__).parent.parent / "templates" / "fonts"
+        # templates/ is gitignored, so its fonts exist only on a developer's
+        # machine; the check matches by file name, so an empty file will do
+        fonts = tmp_path / "fonts"
+        fonts.mkdir()
+        (fonts / "BarlowSemiCondensed-Bold.ttf").touch()
         templates: dict = {}
         create_template_on_disk(self._image_template("BarlowSemiCondensed-Bold"), tmp_path, templates, fonts_dir=fonts)
         assert "img" in templates
