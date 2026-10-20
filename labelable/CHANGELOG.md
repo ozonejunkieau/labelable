@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `print_width_mm` to image templates: sets the ZPL print width (`^PW`) so the printer's stored width can no longer clip the right-hand side of a label
+- Zebra network bridge: show the printer's stored settings (print width, label length, print mode, darkness, offsets, cutter, head usage and more) on the Printers page, read from the bridge's new `GET /config` endpoint. Also returned as `details` by the REST API and MCP. Needs zebra-bridge firmware with `/config`
+- Refresh the web UI to match Home Assistant's look: HA colours and typography in light and dark mode, printer cards with status pills, template cards with size and printer chips, and a tidier print form
+
 ## 0.5.2
 
 - Cloudflare Queue: log each message as it is processed (message ID, attempt count, event type), so an idle consumer can be told apart from one silently retrying
