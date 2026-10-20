@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.3
 
 - Add `print_width_mm` to image templates: sets the ZPL print width (`^PW`) so the printer's stored width can no longer clip the right-hand side of a label
 - Zebra network bridge: show the printer's stored settings (print width, label length, print mode, darkness, offsets, cutter, head usage and more) on the Printers page, read from the bridge's new `GET /config` endpoint. Also returned as `details` by the REST API and MCP. Needs zebra-bridge firmware with `/config`
