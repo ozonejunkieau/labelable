@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.2
 
+- Cloudflare Queue: log each message as it is processed (message ID, attempt count, event type), so an idle consumer can be told apart from one silently retrying
 - Security: render Jinja templates in a sandbox. Templates can be created over the REST API and MCP, and an unsandboxed template could run arbitrary code inside the add-on
 - Document that the API key is a partial control (README "Security"): it can be bypassed with an `X-Ingress-Path` header and does not cover the web UI's print routes or MCP. Keep ports 7979/7980 on a trusted network
 - Fix SSL (dual HTTP+HTTPS) mode starting everything twice: two workers per printer contending for one connection and a second Cloudflare consumer bound to stale templates
