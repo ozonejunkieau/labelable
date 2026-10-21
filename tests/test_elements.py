@@ -709,3 +709,53 @@ class TestRectElementRenderer:
             palette="bwr",
             elements=[{**rect, "fill": "red", "outline": "black"}],
         )
+
+
+class TestTextVerticalAlignToInk:
+    """Tests for TextElement.vertical_align_to_ink."""
+
+    def _ink_box(self, font_manager, template, **fields):
+        image = Image.new("1", (400, 200), color=1)
+        element = TextElement(
+            static_text="Pantry",
+            bounds=BoundingBox(x_mm=5, y_mm=5, width_mm=40, height_mm=15),
+            font_size=40,
+            **fields,
+        )
+        TextElementRenderer(font_manager).render(ImageDraw.Draw(image), image, element, {}, template)
+        return ImageChops.invert(image.convert("L")).getbbox()
+
+    def test_middle_aligned_ink_is_centred_in_bounds(self, font_manager, template):
+        # Bounds at 203 dpi: y 39..158 (5 mm, 15 mm high), centre 99
+        legacy = self._ink_box(font_manager, template, vertical_align=VerticalAlignment.MIDDLE)
+        aligned = self._ink_box(
+            font_manager, template, vertical_align=VerticalAlignment.MIDDLE, vertical_align_to_ink=True
+        )
+        assert legacy is not None and aligned is not None
+        assert legacy[1] > aligned[1], "font has no gap above its glyphs, so this test proves nothing"
+        bounds_top, bounds_bottom = 39, 39 + 119
+        ink_centre = (aligned[1] + aligned[3]) / 2
+        assert abs(ink_centre - (bounds_top + bounds_bottom) / 2) <= 1
+
+    def test_top_aligned_ink_starts_at_bounds(self, font_manager, template):
+        legacy = self._ink_box(font_manager, template)
+        aligned = self._ink_box(font_manager, template, vertical_align_to_ink=True)
+        assert legacy is not None and aligned is not None
+        assert aligned[1] == 39
+        # Vertical only: horizontal placement is unchanged
+        assert aligned[0] == legacy[0]
+
+    def test_bottom_aligned_ink_stays_inside_bounds(self, font_manager, template):
+        aligned = self._ink_box(
+            font_manager, template, vertical_align=VerticalAlignment.BOTTOM, vertical_align_to_ink=True
+        )
+        assert aligned is not None
+        assert aligned[3] <= 39 + 119
+
+    def test_off_by_default(self):
+        assert (
+            TextElement(
+                static_text="x", bounds=BoundingBox(x_mm=0, y_mm=0, width_mm=1, height_mm=1)
+            ).vertical_align_to_ink
+            is False
+        )

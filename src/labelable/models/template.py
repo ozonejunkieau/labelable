@@ -145,6 +145,11 @@ class TextElement(BaseModel):
     circle_aware: bool = False
     line_spacing: float = 1.0  # Multiplier for line height (1.0 = normal, 1.5 = 150%)
     color: str = "black"  # Palette colour name
+    # Place each line vertically by its drawn glyphs. Off (legacy) draws at the
+    # font's origin, so text sits low by the gap above the glyphs and middle or
+    # bottom aligned text can spill out of its bounds. Off by default so
+    # existing labels keep their layout.
+    vertical_align_to_ink: bool = False
 
 
 class QRCodeElement(BaseModel):

@@ -381,6 +381,7 @@ elements:
     circle_aware: true  # Adjusts wrapping for circular labels
     wrap: true
     line_spacing: 1.3  # Multiplier for line height (1.0 = normal, 1.5 = 150%)
+    vertical_align_to_ink: true  # Place by the glyphs; default false = legacy (sits low)
 
   - type: qrcode
     field: code
@@ -504,6 +505,13 @@ elements:
   the template `background`. On black/white templates that is identical to the
   old 1-bit paste, so thermal output is unchanged.
 - Templates without a palette may only use `black` and `white`.
+- Text has a legacy vertical offset: it is drawn at the font origin, so it
+  sits low by the gap above the glyphs (Pillow's `textbbox` top), and
+  middle/bottom aligned text can spill out of its bounds - very visible as
+  white text on a `rect` bar. `vertical_align_to_ink: true` fixes it per
+  element. It is opt-in so existing labels keep their layout; turn it on for
+  new templates. Horizontally `textbbox` starts at the pen origin, so there
+  is no matching horizontal correction.
 - `image` `source` paths resolve inside `image_paths` only (the server uses
   `templates_dir`); field values are never read as paths.
 - Pixel units: `dpi` is an int, so use `dpi: 254` (1 px = 0.1 mm, exact).

@@ -74,9 +74,11 @@ class TextElementRenderer(BaseElementRenderer):
 
         # Calculate total text height with line spacing
         line_heights = []
+        line_tops = []  # Gap between the draw origin and the top of the glyphs
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             line_heights.append(bbox[3] - bbox[1])
+            line_tops.append(bbox[1])
 
         # Apply line spacing multiplier
         spacing_multiplier = element.line_spacing
@@ -151,7 +153,12 @@ class TextElementRenderer(BaseElementRenderer):
                         x,
                     )
 
-            draw.text((line_x, current_y), line, font=font, fill=self.ink(image, template, element.color))
+            draw_y = current_y
+            if element.vertical_align_to_ink:
+                # Layout above measured the glyphs' height, so place the glyphs, not the origin.
+                # Horizontally textbbox starts at the pen origin, so there is nothing to correct.
+                draw_y -= line_tops[i]
+            draw.text((line_x, draw_y), line, font=font, fill=self.ink(image, template, element.color))
             # Apply line spacing for next line
             current_y += int(line_heights[i] * spacing_multiplier)
 

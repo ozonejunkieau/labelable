@@ -165,6 +165,7 @@ elements:
     circle_aware: true
     wrap: true
     line_spacing: 1.3  # Line height multiplier for wrapped text
+    vertical_align_to_ink: true  # Recommended for new templates, see below
 
   - type: qrcode
     field: code
@@ -220,6 +221,8 @@ order, so list a rect before the text that sits on it:
     field: title
     color: white
     bounds: { x_mm: 1, y_mm: 0, width_mm: 38, height_mm: 8 }
+    vertical_align: middle
+    vertical_align_to_ink: true   # centre the glyphs themselves in the bar
 ```
 
 `rect` works on thermal templates too, in black or white.
@@ -247,6 +250,12 @@ for item in items:
 ```
 
 Or from the CLI: `labelable-render shelf-tag.yaml --format device-png -o out.png`.
+
+Text elements are positioned from the font's origin by default, which
+leaves text sitting a little low and lets middle- or bottom-aligned text
+spill past its bounds. Set `vertical_align_to_ink: true` on a text element to
+place it by its visible glyphs instead. It is off by default so existing
+labels print exactly as before.
 
 ### Preview Templates
 
