@@ -26,6 +26,29 @@ just lint
 ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
 ```
 
+### Packaging: core and extras
+
+The base `labelable` install is the template engine only (pydantic, jinja2,
+pyyaml, pillow, barcode libraries, fonttools, httpx). The `bridge` extra adds
+aiohttp, pyserial and pyusb for `labelable-bridge` / `labelable-ptouch`;
+`server` adds that plus fastapi, fastui, uvicorn, pydantic-settings and
+python-multipart. The dev group depends on `labelable[server]`, so `uv sync`
+is enough for the tests. Both Dockerfiles sync `--extra server` and start with
+`uv run --no-sync` - a bare `uv run` re-syncs the default dev group at
+container start, which downloads basedpyright (and fails offline).
+
+Rules that keep the core importable without the extras:
+
+- Nothing reachable from `labelable.templates`, `labelable.models` or
+  `labelable.cli.render` may import a server/bridge module at module level.
+- `printers/__init__.py` loads transport classes lazily (PEP 562). Importing
+  any `labelable.printers.*` submodule runs it, and the image engine imports
+  the dependency-free `ptouch_protocol` from there.
+- Entry points that need an extra import it via `_extras.missing_extra`,
+  which exits with an install hint. Keep `_EXTRA_MODULES` in step with
+  pyproject (`tests/test_packaging.py` checks both, and renders every format
+  with the extras' modules blocked).
+
 ## Architecture
 
 ```
@@ -34,6 +57,7 @@ src/labelable/
 ├── config.py           # Pydantic settings, loads config.yaml, HA auto-discovery
 ├── queue.py            # In-memory print queue with expiry
 ├── __main__.py         # Entry point (uv run labelable)
+├── _extras.py          # Install hint when an optional extra is missing
 ├── models/             # Pydantic data models
 │   ├── printer.py      # Printer configuration (TCP, serial, HA, bridge connections)
 │   ├── template.py     # Label template definitions
@@ -57,11 +81,14 @@ src/labelable/
 │   │   ├── text.py     # Text with wrap/scale/circle-aware
 │   │   ├── qrcode.py   # QR code via qrcode library
 │   │   ├── datamatrix.py # DataMatrix via pylibdmtx
-│   │   └── code128.py  # Code 128 barcode via python-barcode
+│   │   ├── code128.py  # Code 128 barcode via python-barcode
+│   │   ├── image.py    # Raster images, dithered to the template palette
+│   │   └── rect.py     # Filled / outlined rectangles
 │   ├── converters/     # Bitmap format converters
 │   │   ├── zpl.py      # Image → ZPL ^GFA command
 │   │   ├── epl2.py     # Image → EPL2 GW command
-│   │   └── ptouch.py   # Image → P-Touch raster (PackBits)
+│   │   ├── ptouch.py   # Image → P-Touch raster (PackBits)
+│   │   └── palette.py  # RGB → indexed palette image (e-paper), dithering
 │   ├── fonts/          # Font management
 │   │   └── __init__.py # FontManager class
 │   ├── font_manifest.py # Font metadata extraction
@@ -289,6 +316,8 @@ Templates are YAML files supporting two engines:
 - `datetime` - Auto-populated with current timestamp (uses `format` for strftime)
 - `user` - Auto-populated from Home Assistant user (via `X-Remote-User-Display-Name` header)
 - `list` - Newline-separated list of values (textarea in UI, used with batch config)
+- `image` - Passed through unchanged for an `image` element: a PIL Image,
+  encoded image bytes, or a base64 / data URI string (never a file path)
 
 **Jinja Engine Example:**
 ```yaml
@@ -439,6 +468,54 @@ elements:
 ```
 
 Batch mode is auto-detected when a template has `batch` config and a `list` field. All labels are rendered as one image strip with uniform-width labels. The UI shows a textarea for the list field; the CLI accepts `-d signals="GND\nVCC\nSDA"` or `--list-file signals=file.txt`.
+
+### Colour displays (e-paper) and library use
+
+An image template with a `palette` targets a colour display instead of a
+thermal printer. It renders only to `png` (`render(..., output_format="png")`)
+or, as a library, `ImageTemplateEngine.render_image()`, which returns a mode
+`"P"` PIL image whose **palette indices follow the palette list order** - the
+contract with whatever writes the panel. Without a palette, `render_image()`
+returns the 1-bit image the thermal converters use.
+
+```yaml
+palette: bwry          # preset: bw, bwr, bwy, bwry, spectra6 - or a list:
+# palette:
+#   - black            # a named colour, or {name, rgb, measured_rgb}
+#   - {name: red, rgb: "#ff0000", measured_rgb: "#9c2b25"}
+background: white      # palette colour name
+elements:
+  - {type: rect, bounds: {...}, fill: red, outline: null, radius_mm: 1}  # before text on it
+  - {type: text, field: title, color: red, ...}   # also qrcode/datamatrix/code128
+  - type: image
+    field: photo       # or source: logo.png (inside the engine's image_paths)
+    bounds: {x_mm: 1, y_mm: 9, width_mm: 25, height_mm: 20}
+    fit: cover         # contain (default), cover, stretch
+    dither: floyd_steinberg   # or none
+```
+
+- Label art (text, codes, background) is drawn in exact nominal palette RGB
+  with antialiasing off (`draw.fontmode = "1"`) and quantised without
+  dithering, so it stays crisp. Only `image` elements are dithered.
+- `measured_rgb` is the dithering LUT: what each ink really looks like on the
+  panel. Dithering matches and diffuses error against measured colours; the
+  output still carries the nominal `rgb`.
+- Codes paste opaquely: dark modules in the element `color`, light modules in
+  the template `background`. On black/white templates that is identical to the
+  old 1-bit paste, so thermal output is unchanged.
+- Templates without a palette may only use `black` and `white`.
+- `image` `source` paths resolve inside `image_paths` only (the server uses
+  `templates_dir`); field values are never read as paths.
+- Pixel units: `dpi` is an int, so use `dpi: 254` (1 px = 0.1 mm, exact).
+  `dpi: 25.4` is rejected, and as a float it would truncate pixels.
+
+Library use:
+
+```python
+engine = ImageTemplateEngine(custom_font_paths=["./fonts"], image_paths=["./images"])
+template = TemplateConfig.model_validate(yaml.safe_load(path.read_text()))
+image = engine.render_image(template, {"title": "A-001", "photo": pil_image})
+```
 
 ## Key Design Patterns
 
@@ -779,7 +856,7 @@ The daemon reports extended printer status including `media_kind`, `tape_colour`
 
 **RPi deployment:**
 ```bash
-uv tool install "git+https://github.com/ozonejunkieau/labelable"
+uv tool install "labelable[bridge] @ git+https://github.com/ozonejunkieau/labelable"
 labelable-bridge --url http://ha-host:7979 --name rpi-ptouch
 ```
 

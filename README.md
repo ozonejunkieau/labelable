@@ -42,10 +42,28 @@ docker run -p 7979:7979 \
   labelable
 ```
 
+### Python Package
+
+The base install is the template engine only - enough to render labels and
+e-paper images from Python or with `labelable-render`. Extras add the rest:
+
+| Install | Provides |
+|---------|----------|
+| `labelable` | Templates, rendering, `labelable-render` |
+| `labelable[bridge]` | `labelable-bridge` and `labelable-ptouch` (P-Touch over USB) |
+| `labelable[server]` | The API and web UI, with every printer transport |
+
+```bash
+uv add "labelable @ git+https://github.com/ozonejunkieau/labelable"                 # library
+uv tool install "labelable[server] @ git+https://github.com/ozonejunkieau/labelable" # server
+```
+
+The add-on and Docker image already include `server`.
+
 ### Local Development
 
 ```bash
-uv sync
+uv sync      # the dev group pulls in labelable[server] for the tests
 just run
 ```
 
@@ -156,6 +174,80 @@ elements:
     error_correction: M
 ```
 
+### Colour Displays (e-paper)
+
+Image templates can target 2, 3, 4 and 6 colour displays instead of a
+printer. Give the template a `palette` and they render to an indexed PNG
+whose palette indices follow the palette order:
+
+```yaml
+name: shelf-tag
+engine: image
+dimensions: { width_mm: 40, height_mm: 30 }   # 400 x 300 px
+dpi: 254                                      # 1 px = 0.1 mm
+palette:                                      # or a preset: bw, bwr, bwy, bwry, spectra6
+  - black
+  - white
+  - yellow
+  - { name: red, rgb: "#ff0000", measured_rgb: "#9c2b25" }
+background: white
+fields:
+  - { name: title }
+  - { name: photo, type: image }
+elements:
+  - type: text
+    field: title
+    color: red
+    bounds: { x_mm: 1, y_mm: 1, width_mm: 38, height_mm: 7 }
+    auto_scale: true
+  - type: image
+    field: photo
+    fit: cover                 # contain (default), cover, stretch
+    dither: floyd_steinberg    # or none
+    bounds: { x_mm: 1, y_mm: 9, width_mm: 25, height_mm: 20 }
+```
+
+For header bars and boxes, `rect` elements take a `fill` and/or an
+`outline` colour (plus `outline_width_mm` and `radius_mm`). Elements draw in
+order, so list a rect before the text that sits on it:
+
+```yaml
+  - type: rect
+    bounds: { x_mm: 0, y_mm: 0, width_mm: 40, height_mm: 8 }
+    fill: red              # or null for an outline-only box
+    radius_mm: 1
+  - type: text
+    field: title
+    color: white
+    bounds: { x_mm: 1, y_mm: 0, width_mm: 38, height_mm: 8 }
+```
+
+`rect` works on thermal templates too, in black or white.
+
+Text and barcodes take a `color` and are drawn crisp, in exact palette
+colours. Only `image` elements are dithered. `measured_rgb` is optional
+calibration: how that ink actually looks on the panel. Dithering matches
+against it, so photos come out truer, while the PNG keeps the nominal `rgb`.
+
+Image elements also work on thermal labels (dithered to black and white).
+An image `source` (instead of `field`) is read from the templates directory.
+
+To render many labels from Python, use Labelable as a library:
+
+```python
+import yaml
+from labelable.models.template import TemplateConfig
+from labelable.templates.image_engine import ImageTemplateEngine
+
+engine = ImageTemplateEngine(custom_font_paths=["./fonts"], image_paths=["./images"])
+template = TemplateConfig.model_validate(yaml.safe_load(open("shelf-tag.yaml")))
+for item in items:
+    image = engine.render_image(template, {"title": item.name, "photo": item.photo})
+    image.save(f"{item.id}.png")   # mode "P", palette in template order
+```
+
+Or from the CLI: `labelable-render shelf-tag.yaml --format device-png -o out.png`.
+
 ### Preview Templates
 
 Use the CLI to preview image templates:
@@ -179,6 +271,7 @@ uv run labelable-render templates/jar-label.yaml \
 | `datetime` | Auto-populated with current time (uses `format` for strftime) |
 | `user` | Auto-populated from Home Assistant user or `default_user` |
 | `list` | Newline-separated list (textarea in UI, used with batch config) |
+| `image` | Image for an `image` element: base64 / data URI over the API; PIL Image or bytes from Python |
 
 ### Built-in Template Variables
 
