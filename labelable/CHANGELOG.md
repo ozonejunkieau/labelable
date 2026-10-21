@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+- **Breaking for pip/uv installs (not the add-on):** the Python package is split into a core template engine and extras. Install `labelable[server]` for the API and web UI, or `labelable[bridge]` for `labelable-bridge` / `labelable-ptouch`. Raspberry Pi bridge installs must be reinstalled with `uv tool install "labelable[bridge] @ git+https://github.com/ozonejunkieau/labelable"`. The add-on and Docker image are unaffected
+- Colour e-paper displays: give an image template a `palette` (`bw`, `bwr`, `bwy`, `bwry`, `spectra6`, or your own colours) and it renders to an indexed PNG for 2-6 colour panels. Text, barcodes and backgrounds take palette colours
+- New `image` element for pictures and logos, dithered to the template's colours (or to black and white on thermal labels). Optional `measured_rgb` per ink calibrates the dithering to how the panel really looks
+- New `rect` element: filled or outlined boxes with rounded corners, e.g. a coloured header bar behind white text
+- New `vertical_align_to_ink` option on text elements: centres text by its visible glyphs. Without it text sits slightly low and can spill out of its box; it is off by default so existing labels print unchanged
+- Use Labelable as a Python library: `ImageTemplateEngine.render_image()` renders a template straight to an image. `labelable-render --format device-png` does the same from the command line
+- The add-on and Docker image no longer download development tools each time they start, and now start without internet access
+
 ## 0.5.3
 
 - Add `print_width_mm` to image templates: sets the ZPL print width (`^PW`) so the printer's stored width can no longer clip the right-hand side of a label
