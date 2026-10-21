@@ -8,9 +8,14 @@ from pathlib import Path
 
 import yaml
 
+from labelable._extras import missing_extra
 from labelable.models.printer import HealthcheckConfig, PrinterConfig, PrinterType, USBConnection
-from labelable.printers.ptouch import PTouchPrinter
 from labelable.printers.ptouch_protocol import CMD_STATUS_REQUEST, STATUS_RESPONSE_LENGTH, parse_status
+
+try:
+    from labelable.printers.ptouch import PTouchPrinter
+except ImportError as e:
+    missing_extra("bridge", e)
 
 
 async def _status(connection: USBConnection) -> int:

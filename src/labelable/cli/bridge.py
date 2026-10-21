@@ -14,16 +14,21 @@ import logging
 import os
 import sys
 
-import aiohttp
-
+from labelable._extras import missing_extra
 from labelable.models.printer import HealthcheckConfig, PrinterConfig, PrinterType, USBConnection
-from labelable.printers.ptouch import PTouchPrinter
 from labelable.printers.ptouch_protocol import (
     CMD_STATUS_REQUEST,
     STATUS_RESPONSE_LENGTH,
     Error1,
     parse_status,
 )
+
+try:
+    import aiohttp
+
+    from labelable.printers.ptouch import PTouchPrinter
+except ImportError as e:
+    missing_extra("bridge", e)
 
 logger = logging.getLogger("labelable.bridge")
 

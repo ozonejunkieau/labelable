@@ -5,9 +5,14 @@ import os
 import sys
 from pathlib import Path
 
-import uvicorn
+from labelable._extras import missing_extra
 
-from labelable.config import load_config, settings
+try:
+    import uvicorn
+
+    from labelable.config import load_config, settings
+except ImportError as e:
+    missing_extra("server", e)
 
 
 def _setup_macos_library_path() -> None:

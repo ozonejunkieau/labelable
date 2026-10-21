@@ -19,8 +19,8 @@ COPY pyproject.toml uv.lock* README.md ./
 # Copy application source (needed before uv sync for local package install)
 COPY src/ ./src/
 
-# Install dependencies (without dev dependencies)
-RUN uv sync --no-dev --group mcp --frozen
+# Install the server extra (API, UI, printer transports) without dev deps
+RUN uv sync --no-dev --extra server --group mcp --frozen
 
 # Copy example files (user mounts their own config.yaml and templates/)
 COPY config.example.yaml ./config.example.yaml

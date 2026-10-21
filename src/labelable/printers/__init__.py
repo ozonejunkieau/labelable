@@ -1,4 +1,14 @@
-"""Printer implementations for Labelable."""
+"""Printer implementations for Labelable.
+
+The transport classes are loaded on first use (PEP 562 ``__getattr__``), not
+at import. Importing any submodule runs this file, and the image engine
+imports the dependency-free ``ptouch_protocol``; eager imports here would
+make rendering need aiohttp, pyserial and pyusb, which only the ``server``
+and ``bridge`` extras install.
+"""
+
+import importlib
+from typing import TYPE_CHECKING, Any
 
 from labelable.models.printer import (
     BridgeConnection,
@@ -8,13 +18,25 @@ from labelable.models.printer import (
     ZebraBridgeConnection,
 )
 from labelable.models.template import EngineType, TemplateConfig
-from labelable.printers.base import BasePrinter
-from labelable.printers.bridge import BridgePTouchPrinter
-from labelable.printers.epl2 import EPL2Printer
-from labelable.printers.ptouch import PTouchPrinter
-from labelable.printers.ptouch_net import PTouchNetPrinter
-from labelable.printers.zebra_net import ZebraNetPrinter
-from labelable.printers.zpl import ZPLPrinter
+
+if TYPE_CHECKING:
+    from labelable.printers.base import BasePrinter
+    from labelable.printers.bridge import BridgePTouchPrinter
+    from labelable.printers.epl2 import EPL2Printer
+    from labelable.printers.ptouch import PTouchPrinter
+    from labelable.printers.ptouch_net import PTouchNetPrinter
+    from labelable.printers.zebra_net import ZebraNetPrinter
+    from labelable.printers.zpl import ZPLPrinter
+
+_LAZY_CLASSES = {
+    "BasePrinter": "labelable.printers.base",
+    "BridgePTouchPrinter": "labelable.printers.bridge",
+    "EPL2Printer": "labelable.printers.epl2",
+    "PTouchNetPrinter": "labelable.printers.ptouch_net",
+    "PTouchPrinter": "labelable.printers.ptouch",
+    "ZPLPrinter": "labelable.printers.zpl",
+    "ZebraNetPrinter": "labelable.printers.zebra_net",
+}
 
 __all__ = [
     "BasePrinter",
@@ -29,8 +51,22 @@ __all__ = [
 ]
 
 
-def create_printer(config: PrinterConfig) -> BasePrinter:
+def __getattr__(name: str) -> Any:
+    module = _LAZY_CLASSES.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(importlib.import_module(module), name)
+
+
+def create_printer(config: PrinterConfig) -> "BasePrinter":
     """Factory function to create a printer instance from config."""
+    from labelable.printers.bridge import BridgePTouchPrinter
+    from labelable.printers.epl2 import EPL2Printer
+    from labelable.printers.ptouch import PTouchPrinter
+    from labelable.printers.ptouch_net import PTouchNetPrinter
+    from labelable.printers.zebra_net import ZebraNetPrinter
+    from labelable.printers.zpl import ZPLPrinter
+
     # Bridge connections always use BridgePTouchPrinter regardless of printer type
     if isinstance(config.connection, BridgeConnection):
         return BridgePTouchPrinter(config)
@@ -54,7 +90,7 @@ def create_printer(config: PrinterConfig) -> BasePrinter:
     return printer_class(config)
 
 
-def dpi_mismatch_warning(printer: BasePrinter, template: TemplateConfig) -> str | None:
+def dpi_mismatch_warning(printer: "BasePrinter", template: TemplateConfig) -> str | None:
     """Warn when an image template is rendered for a different resolution.
 
     Image templates are laid out in mm but rasterised at ``template.dpi``, so
