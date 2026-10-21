@@ -69,6 +69,7 @@ templates/*.yaml
 # Downloaded fonts
 templates/fonts/
 config/fonts/
+examples/*/fonts/
 
 # Test output
 test-output/

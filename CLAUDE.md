@@ -517,6 +517,10 @@ elements:
 - Pixel units: `dpi` is an int, so use `dpi: 254` (1 px = 0.1 mm, exact).
   `dpi: 25.4` is rejected, and as a float it would truncate pixels.
 
+Worked example with committed output: `examples/epaper/` (`uv run
+examples/epaper/render.py`; it installs the checkout with no extras).
+Re-run it and commit the PNGs when rendering changes.
+
 Library use:
 
 ```python

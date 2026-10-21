@@ -251,6 +251,8 @@ for item in items:
 
 Or from the CLI: `labelable-render shelf-tag.yaml --format device-png -o out.png`.
 
+A complete example, with rendered output, is in [`examples/epaper`](examples/epaper).
+
 Text elements are positioned from the font's origin by default, which
 leaves text sitting a little low and lets middle- or bottom-aligned text
 spill past its bounds. Set `vertical_align_to_ink: true` on a text element to
