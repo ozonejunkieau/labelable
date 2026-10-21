@@ -151,7 +151,7 @@ class TextElementRenderer(BaseElementRenderer):
                         x,
                     )
 
-            draw.text((line_x, current_y), line, font=font, fill="black")
+            draw.text((line_x, current_y), line, font=font, fill=self.ink(image, template, element.color))
             # Apply line spacing for next line
             current_y += int(line_heights[i] * spacing_multiplier)
 

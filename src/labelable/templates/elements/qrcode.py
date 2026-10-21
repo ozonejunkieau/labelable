@@ -98,4 +98,4 @@ class QRCodeElementRenderer(BaseElementRenderer):
         paste_y = center_y - size // 2
 
         # Paste onto main image
-        image.paste(qr_image, (paste_x, paste_y))
+        self.paste_bitmap(image, qr_image, (paste_x, paste_y), template, element.color)

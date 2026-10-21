@@ -1,7 +1,7 @@
 """Tests for element renderers."""
 
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 from labelable.models.template import (
     BoundingBox,
@@ -13,6 +13,7 @@ from labelable.models.template import (
     LabelDimensions,
     LabelShape,
     QRCodeElement,
+    RectElement,
     TemplateConfig,
     TextElement,
     VerticalAlignment,
@@ -21,6 +22,7 @@ from labelable.templates.elements import (
     Code128ElementRenderer,
     DataMatrixElementRenderer,
     QRCodeElementRenderer,
+    RectElementRenderer,
     TextElementRenderer,
 )
 from labelable.templates.fonts import FontManager
@@ -645,3 +647,65 @@ class TestCode128ElementRenderer:
         black2 = sum(1 for p in pixels2 if p == 0)
 
         assert black1 != black2, "Barcode with prefix/suffix should have different content than without"
+
+
+class TestRectElementRenderer:
+    """Tests for RectElementRenderer."""
+
+    def _render(self, font_manager, template, **fields):
+        image = Image.new("1", (400, 200), color=1)
+        element = RectElement(bounds=BoundingBox(x_mm=1, y_mm=1, width_mm=10, height_mm=5), **fields)
+        RectElementRenderer(font_manager).render(ImageDraw.Draw(image), image, element, {}, template)
+        # Mode "1" reads white back as 1; compare in L, where it is 255
+        return image.convert("L")
+
+    def test_fill_covers_bounds_exactly(self, font_manager, template):
+        image = self._render(font_manager, template)
+        # 203 dpi, mm_to_px truncates: x 7..85, y 7..45 inclusive
+        assert ImageChops.invert(image).getbbox() == (7, 7, 86, 46)
+        assert image.getpixel((7, 7)) == 0
+        assert image.getpixel((85, 45)) == 0
+        assert image.getpixel((86, 45)) == 255
+
+    def test_outline_only_leaves_inside_clear(self, font_manager, template):
+        image = self._render(font_manager, template, fill=None, outline="black", outline_width_mm=0.5)
+        assert image.getpixel((7, 7)) == 0
+        assert image.getpixel((40, 25)) == 255
+
+    def test_thin_outline_still_draws(self, font_manager, template):
+        image = self._render(font_manager, template, fill=None, outline="black", outline_width_mm=0.01)
+        assert image.getpixel((7, 20)) == 0
+
+    def test_white_fill_erases(self, font_manager, template):
+        image = Image.new("1", (400, 200), color=0)
+        element = RectElement(bounds=BoundingBox(x_mm=1, y_mm=1, width_mm=10, height_mm=5), fill="white")
+        RectElementRenderer(font_manager).render(ImageDraw.Draw(image), image, element, {}, template)
+        image = image.convert("L")
+        assert image.getpixel((20, 20)) == 255
+        assert image.getpixel((2, 2)) == 0
+
+    def test_rounded_corners(self, font_manager, template):
+        square = self._render(font_manager, template)
+        rounded = self._render(font_manager, template, radius_mm=2)
+        assert square.getpixel((7, 7)) == 0
+        assert rounded.getpixel((7, 7)) == 255
+        assert rounded.getpixel((40, 25)) == 0
+
+    def test_needs_fill_or_outline(self):
+        with pytest.raises(ValueError, match="fill"):
+            RectElement(bounds=BoundingBox(x_mm=0, y_mm=0, width_mm=1, height_mm=1), fill=None)
+
+    def test_colours_validated_against_palette(self):
+        rect = {"type": "rect", "bounds": {"x_mm": 0, "y_mm": 0, "width_mm": 1, "height_mm": 1}}
+        dims = {"width_mm": 10, "height_mm": 10}
+        with pytest.raises(ValueError, match="fill 'red'"):
+            TemplateConfig(name="t", engine=EngineType.IMAGE, dimensions=dims, elements=[{**rect, "fill": "red"}])
+        with pytest.raises(ValueError, match="outline 'red'"):
+            TemplateConfig(name="t", engine=EngineType.IMAGE, dimensions=dims, elements=[{**rect, "outline": "red"}])
+        TemplateConfig(
+            name="t",
+            engine=EngineType.IMAGE,
+            dimensions=dims,
+            palette="bwr",
+            elements=[{**rect, "fill": "red", "outline": "black"}],
+        )

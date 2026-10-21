@@ -1,6 +1,7 @@
 """Image to printer command converters."""
 
 from labelable.templates.converters.epl2 import image_to_epl2
+from labelable.templates.converters.palette import dither_to_palette, image_to_png, quantize_to_palette
 from labelable.templates.converters.ptouch import (
     batch_image_to_ptouch_raster,
     batch_image_to_raster_rows,
@@ -18,4 +19,7 @@ __all__ = [
     "image_to_raster_rows",
     "batch_image_to_raster_rows",
     "encode_raster_rows",
+    "quantize_to_palette",
+    "dither_to_palette",
+    "image_to_png",
 ]

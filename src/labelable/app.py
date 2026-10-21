@@ -118,7 +118,11 @@ async def lifespan(app: FastAPI):
 
     # Initialize template engines
     _jinja_engine = JinjaTemplateEngine()
-    _image_engine = ImageTemplateEngine(custom_font_paths=[str(fonts_path)] if fonts_path.exists() else None)
+    # Image element sources resolve inside the templates directory only
+    _image_engine = ImageTemplateEngine(
+        custom_font_paths=[str(fonts_path)] if fonts_path.exists() else None,
+        image_paths=[templates_path],
+    )
 
     # Initialize print queue
     _queue = PrintQueue(timeout_seconds=_config.queue_timeout_seconds)

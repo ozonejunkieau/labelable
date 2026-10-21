@@ -2,6 +2,8 @@
 
 import io
 import logging
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
@@ -11,8 +13,10 @@ from labelable.models.template import (
     Code128Element,
     DataMatrixElement,
     FieldType,
+    ImageElement,
     LabelShape,
     QRCodeElement,
+    RectElement,
     TemplateConfig,
     TextElement,
 )
@@ -21,14 +25,19 @@ from labelable.templates.converters import (
     batch_image_to_ptouch_raster,
     batch_image_to_raster_rows,
     image_to_epl2,
+    image_to_png,
     image_to_ptouch_raster,
     image_to_raster_rows,
     image_to_zpl,
+    quantize_to_palette,
 )
 from labelable.templates.elements import (
+    BaseElementRenderer,
     Code128ElementRenderer,
     DataMatrixElementRenderer,
+    ImageElementRenderer,
     QRCodeElementRenderer,
+    RectElementRenderer,
     TextElementRenderer,
 )
 from labelable.templates.engine import BaseTemplateEngine, TemplateError
@@ -41,24 +50,34 @@ class ImageTemplateEngine(BaseTemplateEngine):
     """Image-based template engine that renders labels using PIL.
 
     Renders labels as bitmap images that are then converted to
-    printer-specific formats (ZPL, EPL2).
+    printer-specific formats (ZPL, EPL2), or to a PNG for colour displays.
 
     Supports:
     - Rectangular and circular labels
     - Text with wrapping, auto-scaling, and circle-aware layout
     - QR codes and DataMatrix barcodes
+    - Raster images, dithered to the template palette
+    - Filled and outlined rectangles
+    - Colour palettes (e-paper), rendered to an indexed PNG
     - Custom fonts via system font discovery or custom paths
     """
 
     SUPPORTED_TYPES = {"zpl", "epl2", "ptouch"}
 
-    def __init__(self, custom_font_paths: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        custom_font_paths: list[str] | None = None,
+        image_paths: Sequence[str | Path] | None = None,
+    ) -> None:
         """Initialize image template engine.
 
         Args:
             custom_font_paths: Additional paths to search for fonts.
+            image_paths: Directories an image element's ``source`` may be
+                read from. Without any, only image fields work.
         """
         self._custom_font_paths = list(custom_font_paths or [])
+        self._image_paths = list(image_paths or [])
         self._default_font_manager = get_font_manager(custom_font_paths)
         # Font managers for templates that set font_paths, keyed by those paths
         self._template_font_managers: dict[tuple[str, ...], FontManager] = {}
@@ -71,6 +90,8 @@ class ImageTemplateEngine(BaseTemplateEngine):
         self._qrcode_renderer = QRCodeElementRenderer(font_manager)
         self._datamatrix_renderer = DataMatrixElementRenderer(font_manager)
         self._code128_renderer = Code128ElementRenderer(font_manager)
+        self._image_renderer = ImageElementRenderer(font_manager, self._image_paths)
+        self._rect_renderer = RectElementRenderer(font_manager)
 
     def render(
         self,
@@ -85,7 +106,8 @@ class ImageTemplateEngine(BaseTemplateEngine):
         Args:
             template: Template configuration with elements.
             context: Dictionary of field values.
-            output_format: Output format ("zpl", "epl2", or "ptouch").
+            output_format: Output format ("zpl", "epl2", "ptouch", "ptouch_raw",
+                or "png" - the device image, see ``render_image``).
 
         Returns:
             Printer commands as bytes.
@@ -100,13 +122,16 @@ class ImageTemplateEngine(BaseTemplateEngine):
 
             # Auto-detect batch mode
             is_batch = self._is_batch_mode(template, validated_context)
-            if is_batch:
-                image = self._render_batch_image(template, validated_context, mode="1")
-            else:
-                image = self._render_single_label_image(template, validated_context, mode="1")
+            image = self._render_canvas(template, validated_context, is_batch)
 
             # Convert to output format
             fmt = output_format.lower()
+            if fmt == "png":
+                return image_to_png(self._to_device_image(template, image))
+            if template.palette is not None:
+                raise TemplateError(
+                    f"Template '{template.name}' has a colour palette, so it renders only to png, not {fmt}"
+                )
             if fmt == "ptouch_raw":
                 # Uncompressed, unframed 16-byte raster rows. Used by
                 # transports that build the printer command stream
@@ -174,6 +199,55 @@ class ImageTemplateEngine(BaseTemplateEngine):
             raise TemplateError(f"Invalid template data: {e}") from e
         except Exception as e:
             raise TemplateError(f"Failed to render image template: {e}") from e
+
+    def render_image(self, template: TemplateConfig, context: dict[str, Any]) -> Image.Image:
+        """Render a template to the image a device would receive.
+
+        This is the library entry point for colour displays: for a template
+        with a ``palette`` it returns a mode "P" image whose palette indices
+        follow the palette list order; otherwise a 1-bit mode "1" image.
+        Nothing is cropped, masked for preview, or encoded.
+
+        Raises:
+            TemplateError: If rendering fails.
+        """
+        try:
+            validated_context = template.validate_data(context)
+            self._apply_font_paths(template)
+            is_batch = self._is_batch_mode(template, validated_context)
+            return self._to_device_image(template, self._render_canvas(template, validated_context, is_batch))
+        except ValueError as e:
+            raise TemplateError(f"Invalid template data: {e}") from e
+        except Exception as e:
+            raise TemplateError(f"Failed to render image template: {e}") from e
+
+    @staticmethod
+    def _canvas_mode(template: TemplateConfig) -> str:
+        """Mode to draw device output in: 1-bit for thermal, RGB for palettes.
+
+        Palette templates draw in exact palette RGB with antialiasing off and
+        are quantised afterwards (``_to_device_image``).
+        """
+        return "RGB" if template.palette is not None else "1"
+
+    def _render_canvas(
+        self,
+        template: TemplateConfig,
+        validated_context: dict[str, Any],
+        is_batch: bool,
+    ) -> Image.Image:
+        """Render the unconverted device canvas (see ``_canvas_mode``)."""
+        mode = self._canvas_mode(template)
+        if is_batch:
+            return self._render_batch_image(template, validated_context, mode=mode)
+        return self._render_single_label_image(template, validated_context, mode=mode)
+
+    @staticmethod
+    def _to_device_image(template: TemplateConfig, image: Image.Image) -> Image.Image:
+        """Quantise a palette template's RGB canvas; a 1-bit canvas is already final."""
+        if template.palette is None:
+            return image
+        return quantize_to_palette(image, template.palette)
 
     def render_preview(
         self,
@@ -264,19 +338,23 @@ class ImageTemplateEngine(BaseTemplateEngine):
         Args:
             template: Template configuration with elements.
             validated_context: Already-validated context dictionary.
-            mode: PIL image mode ("1" for 1-bit, "RGB" for preview).
+            mode: PIL image mode ("1" for 1-bit, "RGB" for preview and palettes).
 
         Returns:
             PIL Image of the rendered label.
         """
         image = self._create_image(template, mode=mode)
         draw = ImageDraw.Draw(image)
+        if template.palette is not None:
+            # Antialiasing would blend inks into colours the panel can't show
+            draw.fontmode = "1"
 
         for element in template.elements:
             self._render_element(draw, image, element, validated_context, template)
 
         if template.shape == LabelShape.CIRCLE:
-            image = self._apply_circle_mask(image, template, preview=(mode != "1"))
+            # Background outside the circle; render_preview adds transparency
+            image = self._apply_circle_mask(image, template)
 
         return image
 
@@ -382,12 +460,14 @@ class ImageTemplateEngine(BaseTemplateEngine):
         total_width = n * slot_width + (n + 1) * cut_line_px
         total_height = tape_width_px
 
-        bg_color: int | str = 1 if mode == "1" else "white"
-        line_color: int | str = 0 if mode == "1" else "black"
-        text_color: int | str = 0 if mode == "1" else "black"
-
-        strip = Image.new(mode, (total_width, total_height), color=bg_color)
+        strip = Image.new(mode, (total_width, total_height))
+        bg_color = BaseElementRenderer.ink(strip, template, template.background)
+        text_color = BaseElementRenderer.ink(strip, template, text_element.color)
+        line_color = text_color
+        strip.paste(bg_color, (0, 0, total_width, total_height))
         draw = ImageDraw.Draw(strip)
+        if template.palette is not None:
+            draw.fontmode = "1"
 
         for i, item in enumerate(items):
             slot_x = cut_line_px + i * (slot_width + cut_line_px)
@@ -487,17 +567,15 @@ class ImageTemplateEngine(BaseTemplateEngine):
             width_px = int(template.dimensions.width_mm * dpi / 25.4)
             height_px = int(template.dimensions.height_mm * dpi / 25.4)
 
-        # Create image with white background
-        if mode == "1":
-            return Image.new("1", (width_px, height_px), color=1)  # 1 = white
-        else:
-            return Image.new(mode, (width_px, height_px), color="white")
+        image = Image.new(mode, (width_px, height_px))
+        image.paste(BaseElementRenderer.ink(image, template, template.background), (0, 0, width_px, height_px))
+        return image
 
     def _render_element(
         self,
         draw: ImageDraw.ImageDraw,
         image: Image.Image,
-        element: TextElement | QRCodeElement | DataMatrixElement | Code128Element,
+        element: TextElement | QRCodeElement | DataMatrixElement | Code128Element | ImageElement | RectElement,
         context: dict[str, Any],
         template: TemplateConfig,
     ) -> None:
@@ -518,6 +596,10 @@ class ImageTemplateEngine(BaseTemplateEngine):
             self._datamatrix_renderer.render(draw, image, element, context, template)
         elif isinstance(element, Code128Element):
             self._code128_renderer.render(draw, image, element, context, template)
+        elif isinstance(element, ImageElement):
+            self._image_renderer.render(draw, image, element, context, template)
+        elif isinstance(element, RectElement):
+            self._rect_renderer.render(draw, image, element, context, template)
 
     @staticmethod
     def _crop_to_content(image: Image.Image, padding_px: int = 0) -> Image.Image:
@@ -588,7 +670,8 @@ class ImageTemplateEngine(BaseTemplateEngine):
             output.paste(image, mask=mask)
             return output
         else:
-            # For printing, just apply mask (white outside circle)
-            output = Image.new("1", (width, height), 1)  # White background
+            # For printing, just apply mask (background outside circle)
+            output = Image.new(image.mode, (width, height))
+            output.paste(BaseElementRenderer.ink(output, template, template.background), (0, 0, width, height))
             output.paste(image, mask=mask)
             return output

@@ -138,4 +138,4 @@ class Code128ElementRenderer(BaseElementRenderer):
         paste_y = center_y - barcode_img.height // 2
 
         # Paste onto main image
-        image.paste(barcode_img, (paste_x, paste_y))
+        self.paste_bitmap(image, barcode_img, (paste_x, paste_y), template, element.color)

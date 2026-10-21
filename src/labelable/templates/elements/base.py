@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, TypeVar
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 from labelable.models.template import BoundingBox, LabelElement, TemplateConfig
 from labelable.templates.fonts import FontManager
@@ -71,3 +71,32 @@ class BaseElementRenderer(ABC):
             self.mm_to_px(bounds.width_mm, dpi),
             self.mm_to_px(bounds.height_mm, dpi),
         )
+
+    @staticmethod
+    def ink(image: Image.Image, template: TemplateConfig, color: str) -> int | tuple[int, int, int]:
+        """Fill value for a palette colour on this image's mode.
+
+        A 1-bit canvas only exists for templates without a palette, whose
+        colours are limited to black and white.
+        """
+        if image.mode == "1":
+            return 0 if color == "black" else 1
+        return template.color_rgb(color)
+
+    def paste_bitmap(
+        self,
+        image: Image.Image,
+        bitmap: Image.Image,
+        position: tuple[int, int],
+        template: TemplateConfig,
+        color: str,
+    ) -> None:
+        """Paste a black-on-white code bitmap opaquely.
+
+        Dark modules take ``color`` and light ones the template background,
+        so on a black and white label this is the same as pasting the bitmap.
+        """
+        tile = Image.new(image.mode, bitmap.size, self.ink(image, template, template.background))
+        dark = ImageChops.invert(bitmap.convert("L"))
+        tile.paste(self.ink(image, template, color), (0, 0, *bitmap.size), mask=dark)
+        image.paste(tile, position)

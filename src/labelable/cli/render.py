@@ -71,9 +71,19 @@ def main() -> int:
     )
     parser.add_argument(
         "--format",
-        choices=["png", "zpl", "epl2"],
+        choices=["png", "device-png", "zpl", "epl2"],
         default="png",
-        help="Output format (default: png)",
+        help=(
+            "Output format (default: png, a preview). device-png is the image a device receives: "
+            "1-bit, or indexed with palette order for colour templates"
+        ),
+    )
+    parser.add_argument(
+        "--image-path",
+        action="append",
+        default=[],
+        dest="image_paths",
+        help="Directory image element sources are read from (default: the template's directory)",
     )
     parser.add_argument(
         "--font-path",
@@ -201,12 +211,15 @@ def main() -> int:
     font_paths = list(args.font_paths) + list(template.font_paths)
     if fonts_dir.exists():
         font_paths.insert(0, str(fonts_dir))
-    engine = ImageTemplateEngine(custom_font_paths=font_paths if font_paths else None)
+    image_paths = list(args.image_paths) or [str(args.template.parent)]
+    engine = ImageTemplateEngine(custom_font_paths=font_paths if font_paths else None, image_paths=image_paths)
 
     # Render
     try:
         if args.format == "png":
             output = engine.render_preview(template, context, format="PNG")
+        elif args.format == "device-png":
+            output = engine.render(template, context, output_format="png")
         else:
             output = engine.render(template, context, output_format=args.format)
     except Exception as e:
