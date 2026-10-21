@@ -40,4 +40,4 @@ ENV LABELABLE_PORT=7979
 # Config and templates should be mounted:
 #   -v ./config.yaml:/app/config.yaml
 #   -v ./templates:/app/templates
-CMD ["uv", "run", "python", "-m", "labelable"]
+CMD ["uv", "run", "--no-sync", "python", "-m", "labelable"]

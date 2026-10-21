@@ -84,4 +84,4 @@ bashio::log.info "Web UI available via Home Assistant sidebar"
 
 # Start the application
 cd /app
-exec uv run python -m labelable
+exec uv run --no-sync python -m labelable
