@@ -4,7 +4,7 @@ A general purpose label printing API and web UI for home use.
 
 ## Features
 
-- **Multiple Printer Support**: Zebra ZPL, Zebra EPL2, and Brother P-Touch (USB), plus ESP32-P4 network bridges for P-Touch and Zebra USB printers
+- **Multiple Printer Support**: Zebra ZPL, Zebra EPL2, and Brother P-Touch (USB), plus the ESP32-P4 `labelable-usb` network bridge, which reaches several P-Touch, Zebra ZPL and EPL2 USB printers over HTTP (the older `ptouch_bridge` / `zebra_bridge` connection types are deprecated aliases for `usb_bridge`)
 - **Two Template Engines**:
   - **Jinja**: Raw ZPL/EPL2 commands with Jinja2 templating
   - **Image**: Visual element-based rendering with QR codes, DataMatrix, text wrapping

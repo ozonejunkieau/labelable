@@ -1,6 +1,19 @@
 """Convert PIL images to EPL2 GW commands."""
 
+import re
+
 from PIL import Image
+
+# A print command with its own copy count (P2, P3,1). It must be a command on
+# its own line: an unanchored search matched label text such as "Part P20"
+# and silently printed one copy instead of N.
+EPL2_PRINT_COMMAND = re.compile(rb"(?m)^P(\d+)(?:,\d+)?\r?$")
+
+
+def epl2_native_quantity(data: bytes) -> bool:
+    """Whether the EPL2 data prints several copies itself (``P<n>`` with n > 1)."""
+    match = EPL2_PRINT_COMMAND.search(data)
+    return bool(match) and int(match.group(1)) > 1
 
 
 def image_to_epl2(image: Image.Image) -> bytes:

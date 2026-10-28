@@ -97,18 +97,24 @@ printers:
   #     serial_number: "ABC123"
   #     tape_width_mm: 9
 
-  # Brother P-Touch behind an ESP32-P4 network bridge (ptouch-bridge firmware).
-  # The device exposes GET /status and POST /print over plain HTTP and builds
-  # the printer command stream itself, so Labelable sends raw raster rows.
+  # ESP32-P4 labelable-usb bridge: one board drives several USB printers
+  # behind a hub (1 P-Touch, up to 3 ZPL, up to 3 EPL2). The printer `type`
+  # picks what Labelable sends: raster rows for ptouch, raw ZPL for zpl, raw
+  # EPL2 for epl2. `printer` selects the device on the board (ids are listed
+  # by http://<host>/status, e.g. zpl-46J152601234); it may be omitted while
+  # the board has only one printer of that kind.
+  # The older connection types `ptouch_bridge` and `zebra_bridge` still load
+  # as deprecated aliases for `usb_bridge`.
   # - name: net-ptouch
   #   type: ptouch
   #   connection:
-  #     type: ptouch_bridge
-  #     host: esp32-ptouch-e0ca5f  # hostname or IP (DHCP - prefer the hostname)
+  #     type: usb_bridge
+  #     host: labelable-usb-a1b2c3  # hostname or IP (DHCP - prefer the hostname)
   #     port: 80
   #     # Bearer token for POST /print. Falls back to the
-  #     # LABELABLE_PTOUCH_BRIDGE_TOKEN environment variable when unset.
+  #     # LABELABLE_USB_BRIDGE_TOKEN environment variable when unset.
   #     token: "changeme"
+  #     printer: ptouch-000F1Z123456
   #     # Fallback media type used only when the device has never read the
   #     # printer. Live status always wins. 3 = non-laminated.
   #     media_type: 3
@@ -118,20 +124,28 @@ printers:
   #   healthcheck:
   #     interval: 60
 
-  # Zebra GK/GX-series printer behind an ESP32-P4 network bridge
-  # (zebra-bridge firmware). ZPL only: the device streams the job verbatim and
-  # decides completion by polling ~HS, so the printer must be in ZPL mode.
+  # Zebra ZPL printer on the same board. The printer must be in ZPL mode.
   # - name: net-zebra
   #   type: zpl
   #   connection:
-  #     type: zebra_bridge
-  #     host: esp32-zebra-e0d1c6   # hostname or IP (DHCP - prefer the hostname)
-  #     port: 80
-  #     # Bearer token for POST /print. Falls back to the
-  #     # LABELABLE_ZEBRA_BRIDGE_TOKEN environment variable when unset.
-  #     token: "changeme"
+  #     type: usb_bridge
+  #     host: labelable-usb-a1b2c3
+  #     printer: zpl-46J152601234
   #     # Seconds to wait for a job to finish. Keep it above the firmware's
-  #     # CONFIG_ZB_JOB_TIMEOUT_S (300 s by default).
+  #     # CONFIG_LU_ZPL_JOB_TIMEOUT_S (300 s). Default 330.
   #     completion_timeout_s: 330
+  #   healthcheck:
+  #     interval: 60
+
+  # Zebra EPL2 printer (e.g. LP2844) on the same board.
+  # - name: net-epl
+  #   type: epl2
+  #   connection:
+  #     type: usb_bridge
+  #     host: labelable-usb-a1b2c3
+  #     printer: epl-UKQ1935HLU
+  #     # Keep above the firmware's CONFIG_LU_EPL_JOB_TIMEOUT_S (120 s).
+  #     # Default 150.
+  #     completion_timeout_s: 150
   #   healthcheck:
   #     interval: 60

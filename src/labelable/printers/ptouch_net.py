@@ -1,7 +1,7 @@
 """Brother P-Touch printer behind an ESP32-P4 network bridge.
 
-The bridge (ptouch-bridge firmware) hosts a PT-P710BT over USB and exposes a
-small HTTP API on the LAN:
+The bridge (labelable-usb firmware, or the older ptouch-bridge) hosts a
+PT-P710BT over USB and exposes a small HTTP API on the LAN:
 
     GET  /status   unauthenticated, returns session/media state
     POST /print    bearer token, accepts pre-rasterised rows as base64
@@ -17,17 +17,14 @@ import base64
 import logging
 from typing import Any
 
-from labelable.models.printer import PrinterConfig, PTouchBridgeConnection
+from labelable.models.printer import PrinterConfig, UsbBridgeConnection
 from labelable.printers.base import PrinterError
 from labelable.printers.http_bridge import RETRY_ATTEMPTS, HTTPBridgePrinter
 from labelable.templates.converters.ptouch import BYTES_PER_LINE, TAPE_SPECS
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["RETRY_ATTEMPTS", "TOKEN_ENV_VAR", "PTouchNetPrinter"]
-
-# Environment fallback for the POST /print bearer token
-TOKEN_ENV_VAR = "LABELABLE_PTOUCH_BRIDGE_TOKEN"
+__all__ = ["RETRY_ATTEMPTS", "PTouchNetPrinter"]
 
 # Media type values from the bridge spec
 MEDIA_TYPE_NAMES: dict[int, str] = {
@@ -68,15 +65,16 @@ def ink_outside_tape(data: bytes, tape_width_mm: int) -> bool:
 
 
 class PTouchNetPrinter(HTTPBridgePrinter):
-    """P-Touch printer reached over HTTP via the ESP32-P4 ptouch-bridge."""
+    """P-Touch printer reached over HTTP via the ESP32-P4 labelable-usb bridge."""
 
-    TOKEN_ENV_VAR = TOKEN_ENV_VAR
     DEVICE_LABEL = "P-Touch bridge"
+    PRINTER_LABEL = "P-Touch printer"
+    KIND = "ptouch"
 
     def __init__(self, config: PrinterConfig) -> None:
         conn = config.connection
-        if not isinstance(conn, PTouchBridgeConnection):
-            raise PrinterError(f"PTouchNetPrinter requires PTouchBridgeConnection, got {type(conn).__name__}")
+        if not isinstance(conn, UsbBridgeConnection):
+            raise PrinterError(f"PTouchNetPrinter requires UsbBridgeConnection, got {type(conn).__name__}")
         super().__init__(config, conn)
         self._conn = conn
         self._tape_colour: str | None = None
@@ -101,9 +99,9 @@ class PTouchNetPrinter(HTTPBridgePrinter):
     def _apply_status(self, status: dict[str, Any]) -> None:
         """Update cached descriptive fields from a status payload.
 
-        The device omits ``media_type``/``tape_color_id`` entirely (not null)
-        when it has never successfully polled the printer, and reports
-        ``media_width_mm`` as null in the same situation.
+        ``media_type``/``tape_color_id``/``media_width_mm`` are null (older
+        firmware: absent) until the device has successfully polled the
+        printer.
         """
         errors = status.get("errors")
         self._errors = [str(e) for e in errors] if isinstance(errors, list) else []

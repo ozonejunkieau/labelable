@@ -14,8 +14,7 @@ from labelable.models.printer import (
     BridgeConnection,
     PrinterConfig,
     PrinterType,
-    PTouchBridgeConnection,
-    ZebraBridgeConnection,
+    UsbBridgeConnection,
 )
 from labelable.models.template import EngineType, TemplateConfig
 
@@ -23,6 +22,7 @@ if TYPE_CHECKING:
     from labelable.printers.base import BasePrinter
     from labelable.printers.bridge import BridgePTouchPrinter
     from labelable.printers.epl2 import EPL2Printer
+    from labelable.printers.epl2_net import EPL2NetPrinter
     from labelable.printers.ptouch import PTouchPrinter
     from labelable.printers.ptouch_net import PTouchNetPrinter
     from labelable.printers.zebra_net import ZebraNetPrinter
@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 _LAZY_CLASSES = {
     "BasePrinter": "labelable.printers.base",
     "BridgePTouchPrinter": "labelable.printers.bridge",
+    "EPL2NetPrinter": "labelable.printers.epl2_net",
     "EPL2Printer": "labelable.printers.epl2",
     "PTouchNetPrinter": "labelable.printers.ptouch_net",
     "PTouchPrinter": "labelable.printers.ptouch",
@@ -41,6 +42,7 @@ _LAZY_CLASSES = {
 __all__ = [
     "BasePrinter",
     "BridgePTouchPrinter",
+    "EPL2NetPrinter",
     "EPL2Printer",
     "PTouchNetPrinter",
     "PTouchPrinter",
@@ -62,6 +64,7 @@ def create_printer(config: PrinterConfig) -> "BasePrinter":
     """Factory function to create a printer instance from config."""
     from labelable.printers.bridge import BridgePTouchPrinter
     from labelable.printers.epl2 import EPL2Printer
+    from labelable.printers.epl2_net import EPL2NetPrinter
     from labelable.printers.ptouch import PTouchPrinter
     from labelable.printers.ptouch_net import PTouchNetPrinter
     from labelable.printers.zebra_net import ZebraNetPrinter
@@ -71,13 +74,15 @@ def create_printer(config: PrinterConfig) -> "BasePrinter":
     if isinstance(config.connection, BridgeConnection):
         return BridgePTouchPrinter(config)
 
-    # ESP32 network bridge - HTTP transport, raw raster payload
-    if isinstance(config.connection, PTouchBridgeConnection):
-        return PTouchNetPrinter(config)
-
-    # ESP32 network bridge - HTTP transport, raw ZPL payload
-    if isinstance(config.connection, ZebraBridgeConnection):
-        return ZebraNetPrinter(config)
+    # ESP32 labelable-usb bridge - HTTP transport; the printer type picks the
+    # payload (raster rows, raw ZPL, raw EPL2)
+    if isinstance(config.connection, UsbBridgeConnection):
+        net_classes = {
+            PrinterType.PTOUCH: PTouchNetPrinter,
+            PrinterType.ZPL: ZebraNetPrinter,
+            PrinterType.EPL2: EPL2NetPrinter,
+        }
+        return net_classes[config.type](config)
 
     printer_classes = {
         PrinterType.ZPL: ZPLPrinter,

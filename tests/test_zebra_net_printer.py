@@ -4,23 +4,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
-from pydantic import ValidationError
 
 from labelable.models.printer import (
     HealthcheckConfig,
     PrinterConfig,
     PrinterType,
     TCPConnection,
-    ZebraBridgeConnection,
+    UsbBridgeConnection,
 )
 from labelable.models.template import EngineType, LabelDimensions, TemplateConfig
 from labelable.printers import create_printer, dpi_mismatch_warning
 from labelable.printers.base import PrinterError
-from labelable.printers.http_bridge import POST_TIMEOUT, RETRY_ATTEMPTS
-from labelable.printers.zebra_net import JOIN_LIMIT_BYTES, TOKEN_ENV_VAR, ZebraNetPrinter
+from labelable.printers.http_bridge import POST_TIMEOUT, RETRY_ATTEMPTS, TOKEN_ENV_VAR
+from labelable.printers.zebra_net import JOIN_LIMIT_BYTES, ZebraNetPrinter
 
-# Captured from a real zebra-bridge with a GX420t attached
+# Captured from a zebra-bridge (fields added by labelable-usb) with a GX420t attached
 IDLE_STATUS = {
+    "id": "zpl-46J152601234",
+    "kind": "zpl",
+    "serial": "46J152601234",
+    "usb": {"vid": 2655, "pid": 133, "port": "1.3"},
+    "status_age_s": 4,
     "state": "idle",
     "usb_connected": True,
     "jobs_printed": 0,
@@ -31,7 +35,6 @@ IDLE_STATUS = {
         "firmware": "V56.17.5Z",
         "dots_per_mm": 8,
         "dpi": 203,
-        "usb_pid": 133,
     },
     "media": {"thermal_transfer": True, "print_mode": "tear_off", "label_length_dots": 188},
     "formats_in_buffer": 0,
@@ -56,7 +59,7 @@ def _make_config(**conn_kwargs) -> PrinterConfig:
     return PrinterConfig(
         name="zebra",
         type=PrinterType.ZPL,
-        connection=ZebraBridgeConnection(**conn_kwargs),
+        connection=UsbBridgeConnection(**conn_kwargs),
         healthcheck=HealthcheckConfig(),
     )
 
@@ -128,23 +131,20 @@ class TestConfig:
         assert create_printer(_make_config()).output_format == "zpl"
 
     def test_defaults(self):
-        conn = ZebraBridgeConnection(host="h")
+        conn = UsbBridgeConnection(host="h")
         assert conn.port == 80
-        assert conn.completion_timeout_s == 330.0
-
-    def test_rejects_non_zpl_type(self):
-        with pytest.raises(ValidationError, match="only supports type 'zpl'"):
-            PrinterConfig(name="z", type=PrinterType.EPL2, connection=ZebraBridgeConnection(host="h"))
+        assert conn.completion_timeout_s is None
+        assert create_printer(_make_config()).completion_timeout == 330.0
 
     def test_parses_from_dict(self):
         config = PrinterConfig.model_validate(
-            {"name": "z", "type": "zpl", "connection": {"type": "zebra_bridge", "host": "10.0.0.5"}}
+            {"name": "z", "type": "zpl", "connection": {"type": "usb_bridge", "host": "10.0.0.5"}}
         )
-        assert isinstance(config.connection, ZebraBridgeConnection)
+        assert isinstance(config.connection, UsbBridgeConnection)
 
     def test_rejects_wrong_connection_type(self):
         config = PrinterConfig(name="z", type=PrinterType.ZPL, connection=TCPConnection(host="h"))
-        with pytest.raises(PrinterError, match="requires ZebraBridgeConnection"):
+        with pytest.raises(PrinterError, match="requires UsbBridgeConnection"):
             ZebraNetPrinter(config)
 
     def test_token_falls_back_to_env(self, monkeypatch):
@@ -548,7 +548,8 @@ class TestConfigDetails:
         await p.is_online()
         await p.refresh_details()
 
-        assert session.get_calls[-1] == "http://esp32-zebra:80/config"
+        # No printer configured: /config falls back to the id /status reported
+        assert session.get_calls[-1] == "http://esp32-zebra:80/config?printer=zpl-46J152601234"
         details = p.details
         assert details["Print width"] == "581 dots (72.7 mm)"
         assert details["Label length"] == "188 dots (23.5 mm)"

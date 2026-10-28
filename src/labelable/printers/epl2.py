@@ -9,6 +9,7 @@ import serial
 
 from labelable.models.printer import HAConnection, PrinterConfig, SerialConnection, TCPConnection
 from labelable.printers.base import BasePrinter, PrinterError, read_serial_reply
+from labelable.templates.converters.epl2 import epl2_native_quantity
 
 logger = logging.getLogger(__name__)
 
@@ -189,18 +190,10 @@ class EPL2Printer(BasePrinter):
         If data contains 'Pn' where n > 1, assume template handles quantity.
         Otherwise, loop quantity times.
         """
-        import re
-
-        # Check for a P command with quantity > 1 (e.g. P2, P3,1). It must be
-        # a command on its own line: an unanchored search matched label text
-        # such as "Part P20" and silently printed one copy instead of N.
-        match = re.search(rb"(?m)^P(\d+)(?:,\d+)?\r?$", data)
-        if match:
-            qty_in_template = int(match.group(1))
-            if qty_in_template > 1:
-                # Template handles quantity natively
-                await self.print_raw(data)
-                return
+        if epl2_native_quantity(data):
+            # Template handles quantity natively
+            await self.print_raw(data)
+            return
 
         # Fall back to looping
         for _ in range(quantity):

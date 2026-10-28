@@ -135,12 +135,12 @@ class ImageTemplateEngine(BaseTemplateEngine):
             if fmt == "ptouch_raw":
                 # Uncompressed, unframed 16-byte raster rows. Used by
                 # transports that build the printer command stream
-                # themselves (e.g. the ptouch_bridge network device).
+                # themselves (e.g. the usb_bridge network device).
                 tape_width = template.ptouch_tape_width_mm or 24
                 if not template.ptouch_auto_cut or template.ptouch_chain_print:
                     logger.warning(
                         "Template '%s': ptouch_auto_cut/ptouch_chain_print are ignored on the "
-                        "ptouch_bridge transport - the device compiles in auto-cut on, "
+                        "usb_bridge transport - the device compiles in auto-cut on, "
                         "chain-print off, 14-dot margin",
                         template.name,
                     )

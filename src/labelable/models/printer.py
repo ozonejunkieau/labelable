@@ -1,9 +1,12 @@
 """Printer configuration models."""
 
+import logging
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class PrinterType(StrEnum):
@@ -22,8 +25,7 @@ class ConnectionType(StrEnum):
     USB = "usb"
     HA = "ha"
     BRIDGE = "bridge"
-    PTOUCH_BRIDGE = "ptouch_bridge"
-    ZEBRA_BRIDGE = "zebra_bridge"
+    USB_BRIDGE = "usb_bridge"
 
 
 class TCPConnection(BaseModel):
@@ -77,61 +79,58 @@ class BridgeConnection(BaseModel):
     tape_width_mm: int | None = None
 
 
-class PTouchBridgeConnection(BaseModel):
-    """ESP32-P4 P-Touch network bridge (ptouch-bridge firmware).
+class UsbBridgeConnection(BaseModel):
+    """ESP32-P4 labelable-usb network bridge.
 
-    The device hosts a Brother PT-P710BT over USB and exposes an HTTP API:
+    One board drives several USB printers (one P-Touch, up to three Zebra ZPL
+    and three Zebra EPL2) through a hub and exposes an HTTP API:
       GET  /status  (unauthenticated)
       POST /print   (bearer token)
+      GET  /config  (bearer token, ZPL and EPL2 only)
 
-    It does not speak PTCBP - it accepts pre-rasterised, uncompressed
-    16-byte raster rows and builds the printer command stream itself.
+    Every call takes ``?printer=<id>`` to pick the printer. The printer
+    ``type`` selects the payload: raster rows for ptouch, raw ZPL for zpl and
+    raw EPL2 for epl2.
+
+    ``ptouch_bridge`` and ``zebra_bridge`` (the older single-printer
+    firmwares) are deprecated aliases; see ``PrinterConfig``.
     """
 
-    type: Literal["ptouch_bridge"] = "ptouch_bridge"
+    type: Literal["usb_bridge"] = "usb_bridge"
     host: str
     port: int = 80
-    # Optional in config; falls back to LABELABLE_PTOUCH_BRIDGE_TOKEN
+    # Optional in config; falls back to LABELABLE_USB_BRIDGE_TOKEN
     token: str | None = None
-    # Fallback media type when the device has never polled the printer.
-    # Live status always wins. 3 = non-laminated.
+    # Printer id from the bridge (e.g. "zpl-46J152601234"). Optional only
+    # while the bridge has a single printer of the right kind.
+    printer: str | None = None
+    # Fallback media type when the device has never polled the printer
+    # (ptouch). Live status always wins. 3 = non-laminated.
     media_type: int = 3
-    # Skip the device's tape width validation. Genuinely unsafe - content
-    # outside the printable pin window is silently discarded.
+    # Skip the device's tape width validation (ptouch). Genuinely unsafe -
+    # content outside the printable pin window is silently discarded.
     force: bool = False
+    # How long to wait for a job to finish once admitted (zpl, epl2). Unset
+    # picks a default above the firmware's own job timeout (300 s ZPL,
+    # 120 s EPL2), or a long job is reported failed here while it is still
+    # printing.
+    completion_timeout_s: float | None = None
+    # Set when this came from a deprecated alias; names that alias's old
+    # token environment variable, which stays honoured as a fallback.
+    legacy_token_env: str | None = Field(default=None, exclude=True)
 
 
-class ZebraBridgeConnection(BaseModel):
-    """ESP32-P4 Zebra network bridge (zebra-bridge firmware).
-
-    The device hosts a Zebra GK/GX-series printer over USB and exposes an
-    HTTP API:
-      GET  /status  (unauthenticated)
-      POST /print   (bearer token, raw ZPL body)
-
-    ZPL is streamed to the printer verbatim; the device decides completion by
-    polling ~HS, so only ``type: zpl`` printers can use this connection.
-    """
-
-    type: Literal["zebra_bridge"] = "zebra_bridge"
-    host: str
-    port: int = 80
-    # Optional in config; falls back to LABELABLE_ZEBRA_BRIDGE_TOKEN
-    token: str | None = None
-    # How long to wait for a job to finish once admitted. Must exceed the
-    # firmware's own CONFIG_ZB_JOB_TIMEOUT_S (300 s by default), or a long
-    # ^PQ batch is reported failed here while it is still printing.
-    completion_timeout_s: float = 330.0
+# Deprecated connection types that normalise into usb_bridge:
+# alias -> (printer type it allowed, its old token environment variable)
+_BRIDGE_ALIASES: dict[str, tuple[PrinterType, str]] = {
+    "ptouch_bridge": (PrinterType.PTOUCH, "LABELABLE_PTOUCH_BRIDGE_TOKEN"),
+    "zebra_bridge": (PrinterType.ZPL, "LABELABLE_ZEBRA_BRIDGE_TOKEN"),
+}
+_warned_aliases: set[str] = set()
 
 
 ConnectionConfig = Annotated[
-    TCPConnection
-    | SerialConnection
-    | USBConnection
-    | HAConnection
-    | BridgeConnection
-    | PTouchBridgeConnection
-    | ZebraBridgeConnection,
+    TCPConnection | SerialConnection | USBConnection | HAConnection | BridgeConnection | UsbBridgeConnection,
     Field(discriminator="type"),
 ]
 
@@ -152,6 +151,28 @@ class PrinterConfig(BaseModel):
     enabled: bool = True
     healthcheck: HealthcheckConfig = HealthcheckConfig()
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_bridge_aliases(cls, data: Any) -> Any:
+        """Rewrite the deprecated ptouch_bridge / zebra_bridge into usb_bridge."""
+        if not isinstance(data, dict):
+            return data
+        conn = data.get("connection")
+        if not isinstance(conn, dict) or conn.get("type") not in _BRIDGE_ALIASES:
+            return data
+        alias = conn["type"]
+        only_type, token_env = _BRIDGE_ALIASES[alias]
+        # The old firmwares each drove one kind of printer; keep rejecting
+        # a mismatch rather than let it through the broader usb_bridge.
+        if data.get("type") != only_type:
+            raise ValueError(f"{alias} connection only supports type '{only_type.value}', not '{data.get('type')}'")
+        if alias not in _warned_aliases:
+            _warned_aliases.add(alias)
+            logger.warning(
+                f"Connection type '{alias}' is deprecated; use 'usb_bridge' (labelable-usb firmware) instead"
+            )
+        return {**data, "connection": {**conn, "type": "usb_bridge", "legacy_token_env": token_env}}
+
     @model_validator(mode="after")
     def _check_connection_matches_type(self) -> "PrinterConfig":
         # A mismatch used to load fine and fail later: type zpl over a P-Touch
@@ -170,6 +191,5 @@ _TYPES_FOR_CONNECTION: dict[str, tuple[PrinterType, ...]] = {
     "ha": (PrinterType.ZPL, PrinterType.EPL2),
     "usb": (PrinterType.PTOUCH,),
     "bridge": (PrinterType.PTOUCH,),
-    "ptouch_bridge": (PrinterType.PTOUCH,),
-    "zebra_bridge": (PrinterType.ZPL,),
+    "usb_bridge": (PrinterType.PTOUCH, PrinterType.ZPL, PrinterType.EPL2),
 }

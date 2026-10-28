@@ -127,7 +127,7 @@ class BasePrinter(ABC):
         """Resolution the printer itself reports, or None if unknown.
 
         Only transports that can ask the printer override this (the
-        zebra_bridge device reports it from ~HI).
+        usb_bridge device reports it from ~HI).
         """
         return None
 
@@ -161,7 +161,7 @@ class BasePrinter(ABC):
 
         Defaults to the printer type ("zpl", "epl2", "ptouch"). Transports
         that build the printer command stream themselves override this
-        (e.g. "ptouch_raw" for the ptouch_bridge network device).
+        (e.g. "ptouch_raw" for the usb_bridge network device).
         """
         return self.config.type.value
 

@@ -247,8 +247,10 @@ class TestDisplayHelpers:
             ({"type": "usb"}, "USB"),
             ({"type": "ha", "device_id": "garage"}, "Home Assistant (garage)"),
             ({"type": "bridge", "serial_number": "ABC"}, "Bridge daemon (ABC)"),
-            ({"type": "ptouch_bridge", "host": "esp32-ptouch"}, "P-Touch bridge esp32-ptouch"),
-            ({"type": "zebra_bridge", "host": "esp32-zebra"}, "Zebra bridge esp32-zebra"),
+            ({"type": "usb_bridge", "host": "labelable-usb"}, "USB bridge labelable-usb"),
+            ({"type": "usb_bridge", "host": "labelable-usb", "printer": "zpl-1"}, "USB bridge labelable-usb (zpl-1)"),
+            ({"type": "ptouch_bridge", "host": "esp32-ptouch"}, "USB bridge esp32-ptouch"),
+            ({"type": "zebra_bridge", "host": "esp32-zebra"}, "USB bridge esp32-zebra"),
         ],
     )
     def test_connection_summary_covers_every_transport(self, connection, expected):

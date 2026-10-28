@@ -1,7 +1,7 @@
 """Zebra ZPL printer behind an ESP32-P4 network bridge.
 
-The bridge (zebra-bridge firmware) hosts a GK/GX-series printer over USB and
-exposes a small HTTP API on the LAN:
+The bridge (labelable-usb firmware, or the older zebra-bridge) hosts a
+GK/GX-series printer over USB and exposes a small HTTP API on the LAN:
 
     GET  /status   unauthenticated, returns printer identity, faults, counters
     POST /print    bearer token, raw ZPL body (Content-Type: application/zpl)
@@ -16,31 +16,23 @@ The device holds one job at a time and has no queue - queueing is our job.
 
 import logging
 import re
-import time
 from typing import Any
 
-from labelable.models.printer import PrinterConfig, ZebraBridgeConnection
+from labelable.models.printer import PrinterConfig, UsbBridgeConnection
 from labelable.printers.base import PrinterError
 from labelable.printers.http_bridge import HTTPBridgePrinter
 
 logger = logging.getLogger(__name__)
 
-# Environment fallback for the POST /print bearer token
-TOKEN_ENV_VAR = "LABELABLE_ZEBRA_BRIDGE_TOKEN"
+# Wait for a job to finish. Must exceed the firmware's own
+# CONFIG_LU_ZPL_JOB_TIMEOUT_S (300 s by default), or a long ^PQ batch is
+# reported failed here while it is still printing.
+DEFAULT_COMPLETION_TIMEOUT_S = 330.0
 
-# The firmware's default CONFIG_ZB_JOB_BUFFER_MAX_BYTES. Copies are joined
+# The firmware's default CONFIG_LU_JOB_BUFFER_MAX_BYTES. Copies are joined
 # into one job only while they fit, so a build with a smaller limit still
 # works - it just loops instead.
 JOIN_LIMIT_BYTES = 1024 * 1024
-
-# 503 reasons from POST /print. Only a missing printer is worth waiting out;
-# a fault needs a person at the printer.
-REASON_NOT_CONNECTED = "printer not connected"
-REASON_NOT_READY = "printer not ready"
-
-# GET /config holds the printer's USB link for up to ~4 s, and the settings
-# it reports rarely change, so it is read far less often than /status.
-CONFIG_REFRESH_INTERVAL = 600.0
 
 # Configuration label lines shown as printer details, in display order:
 # (label on the ^HH output, display name, value kind)
@@ -80,31 +72,28 @@ def parse_config_label(raw: str) -> dict[str, str]:
 
 
 class ZebraNetPrinter(HTTPBridgePrinter):
-    """Zebra ZPL printer reached over HTTP via the ESP32-P4 zebra-bridge."""
+    """Zebra ZPL printer reached over HTTP via the ESP32-P4 labelable-usb bridge."""
 
-    TOKEN_ENV_VAR = TOKEN_ENV_VAR
     DEVICE_LABEL = "Zebra bridge"
+    PRINTER_LABEL = "Zebra printer"
+    NOT_READY_HINT = "not answering ~HS - is it in ZPL mode?"
+    KIND = "zpl"
+    DEFAULT_COMPLETION_TIMEOUT = DEFAULT_COMPLETION_TIMEOUT_S
+    HAS_CONFIG = True
 
     def __init__(self, config: PrinterConfig) -> None:
         conn = config.connection
-        if not isinstance(conn, ZebraBridgeConnection):
-            raise PrinterError(f"ZebraNetPrinter requires ZebraBridgeConnection, got {type(conn).__name__}")
+        if not isinstance(conn, UsbBridgeConnection):
+            raise PrinterError(f"ZebraNetPrinter requires UsbBridgeConnection, got {type(conn).__name__}")
         super().__init__(config, conn)
         self._conn = conn
         self._dpi: int | None = None
         self._config_lines: dict[str, str] = {}
-        self._config_read_at: float | None = None
-        # Older firmware has no GET /config; stop asking once it says so
-        self._config_unsupported = False
 
     @property
     def dpi(self) -> int | None:
         """Printer resolution reported by ~HI, or None until it has answered."""
         return self._dpi
-
-    @property
-    def completion_timeout(self) -> float:
-        return self._conn.completion_timeout_s
 
     def _apply_status(self, status: dict[str, Any]) -> None:
         """Update cached descriptive fields from a status payload.
@@ -146,20 +135,6 @@ class ZebraNetPrinter(HTTPBridgePrinter):
             logger.warning(f"Printer {self.name}: not answering ~HS - is it in ZPL mode?")
             return False
         return status.get("state") != "printing" and not self._errors
-
-    def _is_retryable(self, status_code: int, reason: str) -> bool:
-        if status_code == 409:
-            return True
-        return status_code == 503 and reason != REASON_NOT_READY
-
-    def _rejection(self, status_code: int, reason: str) -> PrinterError:
-        if status_code == 503 and reason == REASON_NOT_READY:
-            if self._errors:
-                detail = ", ".join(self._errors)
-            else:
-                detail = "not answering ~HS - is it in ZPL mode?"
-            return PrinterError(f"Zebra printer not ready: {detail}")
-        return super()._rejection(status_code, reason)
 
     def _failed_job_detail(self) -> str:
         """Prefer the device's own failure reason (e.g. "fault: paper_out")."""
@@ -229,43 +204,12 @@ class ZebraNetPrinter(HTTPBridgePrinter):
             return value.replace(" IN", " in")
         return value
 
-    async def refresh_details(self) -> None:
-        """Re-read the printer's stored settings via GET /config.
-
-        At most every CONFIG_REFRESH_INTERVAL, and only when the printer is
-        connected and idle; a busy or slow reply is simply retried on the next
-        healthcheck.
-        """
-        token = self._token
-        if self._config_unsupported or not token:
-            return
-        if self._config_read_at is not None and time.monotonic() - self._config_read_at < CONFIG_REFRESH_INTERVAL:
-            return
-        status = self._last_status
-        if not status or not status.get("usb_connected") or status.get("state") == "printing":
-            return
-
-        session = self._ensure_session()
-        try:
-            async with session.get(f"{self.base_url}/config", headers={"Authorization": f"Bearer {token}"}) as resp:
-                if resp.status == 404:
-                    self._config_unsupported = True
-                    logger.info(f"Printer {self.name}: bridge firmware has no GET /config, settings not shown")
-                    return
-                if resp.status != 200:
-                    logger.debug(f"Printer {self.name}: GET /config returned HTTP {resp.status}")
-                    return
-                body = await resp.json()
-        except Exception as e:
-            logger.debug(f"Printer {self.name}: GET /config failed - {e}")
-            return
-
-        raw = body.get("raw") if isinstance(body, dict) else None
+    def _apply_config(self, body: dict[str, Any]) -> bool:
+        raw = body.get("raw")
         if not isinstance(raw, str):
-            logger.warning(f"Printer {self.name}: GET /config returned no configuration text")
-            return
+            return False
         self._config_lines = parse_config_label(raw)
-        self._config_read_at = time.monotonic()
+        return True
 
     async def get_media_size(self) -> tuple[float, float] | None:
         """Not available: ~HS reports label length but not width."""

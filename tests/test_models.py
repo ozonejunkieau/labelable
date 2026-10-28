@@ -162,6 +162,9 @@ class TestPrinterConfigValidation:
             ("ptouch", {"type": "bridge", "serial_number": "X"}),
             ("ptouch", {"type": "ptouch_bridge", "host": "h"}),
             ("zpl", {"type": "zebra_bridge", "host": "h"}),
+            ("ptouch", {"type": "usb_bridge", "host": "h"}),
+            ("zpl", {"type": "usb_bridge", "host": "h"}),
+            ("epl2", {"type": "usb_bridge", "host": "h"}),
         ],
     )
     def test_valid_combinations_accepted(self, printer_type, connection):

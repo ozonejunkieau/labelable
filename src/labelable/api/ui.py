@@ -551,10 +551,9 @@ def _connection_summary(conn: Any) -> str:
         return f"Home Assistant ({conn.device_id})"
     if kind == "bridge":
         return f"Bridge daemon ({conn.serial_number})"
-    if kind == "ptouch_bridge":
-        return f"P-Touch bridge {conn.host}"
-    if kind == "zebra_bridge":
-        return f"Zebra bridge {conn.host}"
+    if kind == "usb_bridge":
+        suffix = f" ({conn.printer})" if conn.printer else ""
+        return f"USB bridge {conn.host}{suffix}"
     return str(kind)
 
 

@@ -9,16 +9,13 @@ from labelable.models.printer import (
     HealthcheckConfig,
     PrinterConfig,
     PrinterType,
-    PTouchBridgeConnection,
+    UsbBridgeConnection,
     USBConnection,
 )
 from labelable.printers import create_printer
 from labelable.printers.base import PrinterError
-from labelable.printers.ptouch_net import (
-    RETRY_ATTEMPTS,
-    TOKEN_ENV_VAR,
-    PTouchNetPrinter,
-)
+from labelable.printers.http_bridge import TOKEN_ENV_VAR
+from labelable.printers.ptouch_net import RETRY_ATTEMPTS, PTouchNetPrinter
 
 IDLE_STATUS = {
     "state": "idle",
@@ -44,7 +41,7 @@ def _make_config(**conn_kwargs) -> PrinterConfig:
     return PrinterConfig(
         name="netbridge",
         type=PrinterType.PTOUCH,
-        connection=PTouchBridgeConnection(**conn_kwargs),
+        connection=UsbBridgeConnection(**conn_kwargs),
         healthcheck=HealthcheckConfig(),
     )
 
@@ -130,7 +127,7 @@ class TestFactoryAndFormat:
             connection=USBConnection(),
             healthcheck=HealthcheckConfig(),
         )
-        with pytest.raises(PrinterError, match="requires PTouchBridgeConnection"):
+        with pytest.raises(PrinterError, match="requires UsbBridgeConnection"):
             PTouchNetPrinter(config)
 
     def test_base_url_uses_port(self):
@@ -138,7 +135,7 @@ class TestFactoryAndFormat:
         assert printer.base_url == "http://1.2.3.4:8080"
 
     def test_default_port_is_80(self):
-        assert PTouchBridgeConnection(host="h").port == 80
+        assert UsbBridgeConnection(host="h").port == 80
 
     def test_token_falls_back_to_env(self, monkeypatch):
         monkeypatch.setenv(TOKEN_ENV_VAR, "env-token")

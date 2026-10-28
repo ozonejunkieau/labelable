@@ -1,13 +1,16 @@
-"""Shared HTTP plumbing for the ESP32-P4 USB bridge devices.
+"""Shared HTTP plumbing for the ESP32-P4 labelable-usb bridge.
 
-Both bridge firmwares (ptouch-bridge and zebra-bridge) expose the same shape
-of API on the LAN:
+One board drives several USB printers and exposes, per printer (selected with
+``?printer=<id>``):
 
     GET  /status   unauthenticated, returns session state and job counters
     POST /print    bearer token, 202 on admission
+    GET  /config   bearer token, stored settings (ZPL and EPL2 only)
 
-and the same job semantics: one job at a time, no queue on the device, and
-202 means admitted rather than printed. Completion is observed by polling
+and the same job semantics: one job at a time per printer, no queue on the
+device, and 202 means admitted rather than printed. The older single-printer
+firmwares (ptouch-bridge, zebra-bridge) speak the same API without the
+``printer`` parameter, which they ignore. Completion is observed by polling
 /status until the session leaves ``printing`` and ``jobs_printed`` or
 ``jobs_failed`` moves.
 
@@ -24,12 +27,14 @@ onto the printer's descriptive properties.
 import asyncio
 import logging
 import os
+import time
 from abc import abstractmethod
 from typing import Any, ClassVar
+from urllib.parse import quote
 
 import aiohttp
 
-from labelable.models.printer import PrinterConfig, PTouchBridgeConnection, ZebraBridgeConnection
+from labelable.models.printer import PrinterConfig, UsbBridgeConnection
 from labelable.printers.base import BasePrinter, PrinterError
 
 logger = logging.getLogger(__name__)
@@ -50,20 +55,42 @@ COMPLETION_POLL_INTERVAL = 1.0
 # reply after the upload are still bounded.
 POST_TIMEOUT = aiohttp.ClientTimeout(total=None, connect=REQUEST_TIMEOUT, sock_read=REQUEST_TIMEOUT)
 
-BridgeConnection = PTouchBridgeConnection | ZebraBridgeConnection
+# Environment fallback for the bearer token
+TOKEN_ENV_VAR = "LABELABLE_USB_BRIDGE_TOKEN"
+
+# 4xx/5xx reasons from POST /print that get specific handling
+REASON_NOT_CONNECTED = "printer not connected"
+REASON_NOT_READY = "printer not ready"
+REASON_UNKNOWN_PRINTER = "unknown printer"
+REASON_PRINTER_REQUIRED = "printer parameter required"
+
+# GET /config holds the printer's USB link for up to ~4 s, and the settings
+# it reports rarely change, so it is read far less often than /status.
+CONFIG_REFRESH_INTERVAL = 600.0
 
 
 class HTTPBridgePrinter(BasePrinter):
     """Base for printers reached over HTTP via an ESP32-P4 bridge."""
 
-    # Environment fallback for the POST /print bearer token
-    TOKEN_ENV_VAR: ClassVar[str]
     # Human name used in log and error messages, e.g. "P-Touch bridge"
     DEVICE_LABEL: ClassVar[str]
+    # The printer as named in "not ready" errors, e.g. "Zebra printer"
+    PRINTER_LABEL: ClassVar[str]
+    # What to suggest when the device refuses a job without listing a fault
+    NOT_READY_HINT: ClassVar[str] = "no detail"
+    # The firmware's printer kind: "ptouch", "zpl" or "epl"
+    KIND: ClassVar[str]
+    # Seconds to wait for an admitted job when the connection sets none
+    DEFAULT_COMPLETION_TIMEOUT: ClassVar[float] = 30.0
+    # Whether the device has GET /config for this kind of printer
+    HAS_CONFIG: ClassVar[bool] = False
 
-    def __init__(self, config: PrinterConfig, conn: BridgeConnection) -> None:
+    def __init__(self, config: PrinterConfig, conn: UsbBridgeConnection) -> None:
         super().__init__(config)
         self._bridge_conn = conn
+        self._config_read_at: float | None = None
+        # Older firmware has no GET /config; stop asking once it says so
+        self._config_unsupported = False
         self._session: aiohttp.ClientSession | None = None
         self._last_status: dict[str, Any] | None = None
         self._errors: list[str] = []
@@ -80,17 +107,42 @@ class HTTPBridgePrinter(BasePrinter):
     def _is_ready(self, status: dict[str, Any]) -> bool:
         """Whether the device would accept a job right now."""
 
+    def _apply_config(self, body: dict[str, Any]) -> bool:
+        """Store a GET /config body; False if it held nothing usable."""
+        return False
+
     @property
     def completion_timeout(self) -> float:
         """Seconds to wait for an admitted job to finish."""
-        return 30.0
+        configured = self._bridge_conn.completion_timeout_s
+        return configured if configured is not None else self.DEFAULT_COMPLETION_TIMEOUT
 
     def _is_retryable(self, status_code: int, reason: str) -> bool:
-        """Whether a non-202 POST /print response is worth retrying."""
-        return status_code in (409, 503)
+        """Whether a non-202 POST /print response is worth retrying.
+
+        A busy printer or one that is briefly unplugged is worth waiting out.
+        ``printer not ready`` is a fault that needs a person at the printer.
+        """
+        if status_code == 409:
+            return True
+        return status_code == 503 and reason != REASON_NOT_READY
 
     def _rejection(self, status_code: int, reason: str) -> PrinterError:
         """Error for a non-retryable POST /print response."""
+        printer_id = self._bridge_conn.printer
+        if status_code == 404 and reason == REASON_UNKNOWN_PRINTER:
+            return PrinterError(
+                f"{self.DEVICE_LABEL} does not know printer '{printer_id}'; "
+                f"set connection.printer to an id listed by GET {self.base_url}/status"
+            )
+        if status_code == 400 and reason == REASON_PRINTER_REQUIRED:
+            return PrinterError(
+                f"{self.DEVICE_LABEL} has more than one printer that could take this job; "
+                f"set `printer:` in the connection config to one of the ids listed by GET {self.base_url}/status"
+            )
+        if status_code == 503 and reason == REASON_NOT_READY:
+            detail = ", ".join(self._errors) if self._errors else self.NOT_READY_HINT
+            return PrinterError(f"{self.PRINTER_LABEL} not ready: {detail}")
         return PrinterError(f"{self.DEVICE_LABEL} rejected job (HTTP {status_code}): {reason}")
 
     def _failed_job_detail(self) -> str:
@@ -105,9 +157,20 @@ class HTTPBridgePrinter(BasePrinter):
     def base_url(self) -> str:
         return f"http://{self._bridge_conn.host}:{self._bridge_conn.port}"
 
+    def _url(self, path: str, printer_id: str | None = None) -> str:
+        """Endpoint URL, selecting the configured printer (or `printer_id`)."""
+        url = f"{self.base_url}{path}"
+        printer_id = printer_id or self._bridge_conn.printer
+        return f"{url}?printer={quote(printer_id, safe='')}" if printer_id else url
+
     @property
     def _token(self) -> str | None:
-        return self._bridge_conn.token or os.environ.get(self.TOKEN_ENV_VAR)
+        """Config token, then LABELABLE_USB_BRIDGE_TOKEN, then the old alias's variable."""
+        conn = self._bridge_conn
+        token = conn.token or os.environ.get(TOKEN_ENV_VAR)
+        if not token and conn.legacy_token_env:
+            token = os.environ.get(conn.legacy_token_env)
+        return token
 
     @property
     def errors(self) -> list[str]:
@@ -118,7 +181,7 @@ class HTTPBridgePrinter(BasePrinter):
         token = self._token
         if not token:
             raise PrinterError(
-                f"No bearer token configured for printer '{self.name}' (set connection.token or {self.TOKEN_ENV_VAR})"
+                f"No bearer token configured for printer '{self.name}' (set connection.token or {TOKEN_ENV_VAR})"
             )
         return token
 
@@ -153,7 +216,7 @@ class HTTPBridgePrinter(BasePrinter):
         session = self._ensure_session()
 
         try:
-            async with session.get(f"{self.base_url}/status") as resp:
+            async with session.get(self._url("/status")) as resp:
                 if resp.status != 200:
                     logger.warning(f"Printer {self.name}: GET /status returned HTTP {resp.status}")
                     return None
@@ -166,9 +229,36 @@ class HTTPBridgePrinter(BasePrinter):
             logger.warning(f"Printer {self.name}: GET /status returned unexpected payload type")
             return None
 
+        if isinstance(body.get("printers"), list):
+            # No `printer` set, so the board answered with its summary
+            body = self._pick_printer(body["printers"])
+            if body is None:
+                return None
+
         self._last_status = body
         self._apply_status(body)
         return body
+
+    def _pick_printer(self, printers: list[Any]) -> dict[str, Any] | None:
+        """Choose this printer from a board summary when `printer` is unset.
+
+        Works only while exactly one printer of this kind (preferring
+        connected ones) is known - the same rule the device applies to
+        POST /print without a printer.
+        """
+        ours = [p for p in printers if isinstance(p, dict) and p.get("kind") == self.KIND]
+        connected = [p for p in ours if p.get("usb_connected")]
+        candidates = connected or ours
+        if len(candidates) == 1:
+            return candidates[0]
+        if not candidates:
+            logger.warning(f"Printer {self.name}: {self.DEVICE_LABEL} has no '{self.KIND}' printer")
+        else:
+            ids = ", ".join(str(p.get("id")) for p in candidates)
+            logger.warning(
+                f"Printer {self.name}: several '{self.KIND}' printers ({ids}); set `printer:` in the connection"
+            )
+        return None
 
     # ------------------------------------------------------------------
     # Status
@@ -191,7 +281,14 @@ class HTTPBridgePrinter(BasePrinter):
             return False
 
         self._connected = True
-        online = self._is_ready(status)
+        kind = status.get("kind")
+        if isinstance(kind, str) and kind != self.KIND:
+            logger.warning(
+                f"Printer {self.name}: bridge printer is '{kind}', but this printer is configured as '{self.KIND}'"
+            )
+            online = False
+        else:
+            online = self._is_ready(status)
         self._update_cache(online)
 
         if self._errors:
@@ -208,6 +305,52 @@ class HTTPBridgePrinter(BasePrinter):
             printed if isinstance(printed, int) else 0,
             failed if isinstance(failed, int) else 0,
         )
+
+    async def refresh_details(self) -> None:
+        """Re-read the printer's stored settings via GET /config.
+
+        At most every CONFIG_REFRESH_INTERVAL, and only when the printer is
+        connected and idle; a busy or slow reply is simply retried on the next
+        healthcheck.
+        """
+        token = self._token
+        if not self.HAS_CONFIG or self._config_unsupported or not token:
+            return
+        if self._config_read_at is not None and time.monotonic() - self._config_read_at < CONFIG_REFRESH_INTERVAL:
+            return
+        status = self._last_status
+        if not status or not status.get("usb_connected") or status.get("state") == "printing":
+            return
+        kind = status.get("kind")
+        if isinstance(kind, str) and kind != self.KIND:
+            # is_online() already reports the mismatch; another kind's
+            # settings would only mislabel this printer's details
+            return
+
+        # /config insists on a printer, so fall back to the id that /status
+        # identified when none is configured
+        status_id = status.get("id")
+        url = self._url("/config", status_id if isinstance(status_id, str) else None)
+        session = self._ensure_session()
+        try:
+            async with session.get(url, headers={"Authorization": f"Bearer {token}"}) as resp:
+                if resp.status in (400, 404):
+                    # Older firmware, or a printer kind without settings
+                    self._config_unsupported = True
+                    logger.info(f"Printer {self.name}: bridge has no GET /config for this printer, settings not shown")
+                    return
+                if resp.status != 200:
+                    logger.debug(f"Printer {self.name}: GET /config returned HTTP {resp.status}")
+                    return
+                body = await resp.json()
+        except Exception as e:
+            logger.debug(f"Printer {self.name}: GET /config failed - {e}")
+            return
+
+        if not isinstance(body, dict) or not self._apply_config(body):
+            logger.warning(f"Printer {self.name}: GET /config returned no usable configuration")
+            return
+        self._config_read_at = time.monotonic()
 
     # ------------------------------------------------------------------
     # Printing
@@ -229,7 +372,7 @@ class HTTPBridgePrinter(BasePrinter):
         for attempt in range(1, RETRY_ATTEMPTS + 1):
             try:
                 async with self._session.post(
-                    f"{self.base_url}/print",
+                    self._url("/print"),
                     headers=headers,
                     timeout=POST_TIMEOUT,
                     **request_kwargs,
