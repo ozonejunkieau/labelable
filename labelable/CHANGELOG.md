@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- Support for the new labelable-usb board firmware: one ESP32-P4 board drives up to one P-Touch, three Zebra ZPL and three Zebra EPL2 printers through a USB hub. Use connection type `usb_bridge` and set `printer:` to the id the board lists at `GET /status` (e.g. `zpl-31J10330054`). It replaces the single-printer ptouch-bridge and zebra-bridge firmwares
+- Zebra EPL2 printers (such as the LP2844) can now be used over the bridge, with status, printer settings on the Printers page, and print completion
+- `ptouch_bridge` and `zebra_bridge` connections still work, but are deprecated: switch them to `usb_bridge`. Add `printer:` once a board has more than one printer of the same kind. The token can also come from `LABELABLE_USB_BRIDGE_TOKEN`
+
 ## 0.6.0
 
 - **Breaking for pip/uv installs (not the add-on):** the Python package is split into a core template engine and extras. Install `labelable[server]` for the API and web UI, or `labelable[bridge]` for `labelable-bridge` / `labelable-ptouch`. Raspberry Pi bridge installs must be reinstalled with `uv tool install "labelable[bridge] @ git+https://github.com/ozonejunkieau/labelable"`. The add-on and Docker image are unaffected
